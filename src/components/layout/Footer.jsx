@@ -7,7 +7,7 @@ const Footer = () => {
   return (
     <footer className="bg-slate-50 text-slate-600 pt-10 pb-4 border-t border-slate-200/80 shadow-inner">
       <div className="container mx-auto px-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8 mb-8">
           
           {/* Column 1: Brand */}
           <div>
@@ -46,7 +46,20 @@ const Footer = () => {
             </ul>
           </div>
 
-          {/* Column 3: Categories */}
+          {/* Column 3: Customer Support */}
+          <div>
+            <h4 className="text-slate-800 font-bold mb-4 uppercase tracking-wider text-xs">Customer Support</h4>
+            <ul className="space-y-2 text-sm">
+              <li><Link to="/track-order" className="text-slate-650 hover:text-brand-blue transition-colors flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-brand-blue"></span> Track Order</Link></li>
+              <li><Link to="/faq" className="text-slate-650 hover:text-brand-blue transition-colors flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-brand-blue"></span> FAQ</Link></li>
+              <li><Link to="/privacy-policy" className="text-slate-650 hover:text-brand-blue transition-colors flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-brand-blue"></span> Privacy Policy</Link></li>
+              <li><Link to="/terms-and-conditions" className="text-slate-650 hover:text-brand-blue transition-colors flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-brand-blue"></span> Terms & Conditions</Link></li>
+              <li><Link to="/shipping-policy" className="text-slate-650 hover:text-brand-blue transition-colors flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-brand-blue"></span> Shipping Policy</Link></li>
+              <li><Link to="/refund-policy" className="text-slate-650 hover:text-brand-blue transition-colors flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-brand-blue"></span> Refund & Cancellation</Link></li>
+            </ul>
+          </div>
+
+          {/* Column 4: Categories */}
           <div>
             <h4 className="text-slate-800 font-bold mb-4 uppercase tracking-wider text-xs">Categories</h4>
             <ul className="space-y-2 text-sm">

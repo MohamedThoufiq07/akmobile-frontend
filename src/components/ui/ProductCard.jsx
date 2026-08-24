@@ -7,6 +7,8 @@ import { useWishlist } from '../../context/WishlistContext';
 import { formatPrice } from '../../utils/formatPrice';
 import RatingStars from './RatingStars';
 
+import { getValidImageUrl } from '../../utils/imageHelper';
+
 // Brand accent colors for card borders & pills
 const BRAND_ACCENT = {
   'Apple':     { border: '#6B7280', bg: '#F3F4F6', text: '#374151' },
@@ -102,7 +104,7 @@ const ProductCard = ({ product }) => {
       {/* Product Image */}
       <Link to={`/products/${product._id}`} className="block relative pt-[100%] overflow-hidden bg-gradient-to-b from-slate-50 to-white">
         <img
-          src={product.images?.[0]?.url || 'https://placehold.co/600x600/eeeeee/999999?text=No+Image'}
+          src={getValidImageUrl(product.images?.[0]?.url, product.name)}
           alt={product.name}
           className="absolute top-0 left-0 w-full h-full object-contain p-4 transition-transform duration-500 group-hover:scale-110"
           loading="lazy"

@@ -12,6 +12,7 @@ import LoadingSpinner from '../components/ui/LoadingSpinner';
 import RatingStars from '../components/ui/RatingStars';
 import ProductCard from '../components/ui/ProductCard';
 import { Reveal, RevealStagger, RevealItem } from '../components/ui/animations';
+import { getValidImageUrl } from '../utils/imageHelper';
 
 const ProductDetailPage = () => {
   const { id } = useParams();
@@ -147,7 +148,7 @@ const ProductDetailPage = () => {
                 </div>
               )}
               <img 
-                src={uniqueImages[activeImage]?.url} 
+                src={getValidImageUrl(uniqueImages[activeImage]?.url, product.name)} 
                 alt={product.name} 
                 className="w-full h-auto max-h-[500px] object-contain select-none pointer-events-none"
                 loading="lazy"
@@ -171,7 +172,7 @@ const ProductDetailPage = () => {
                 <div 
                   className="hidden lg:block absolute left-[105%] top-0 w-[600px] h-[500px] bg-slate-50 border border-slate-200 shadow-2xl rounded-2xl z-30 overflow-hidden pointer-events-none"
                   style={{
-                    backgroundImage: `url(${uniqueImages[activeImage]?.url})`,
+                    backgroundImage: `url(${getValidImageUrl(uniqueImages[activeImage]?.url, product.name)})`,
                     backgroundPosition: `${zoomState.bgX}% ${zoomState.bgY}%`,
                     backgroundSize: '250% 250%',
                     backgroundRepeat: 'no-repeat',
@@ -189,7 +190,7 @@ const ProductDetailPage = () => {
                   className={`w-16 h-16 md:w-20 md:h-20 shrink-0 rounded-lg p-2 border-2 transition-all ${activeImage === index ? 'border-brand-blue bg-white shadow-sm' : 'border-slate-200 bg-slate-50/50 opacity-70 hover:opacity-100'}`}
                 >
                   <img
-                    src={img.url}
+                    src={getValidImageUrl(img.url, product.name)}
                     alt={`${product.name} ${index + 1}`}
                     className="w-full h-full object-contain"
                     loading="lazy"

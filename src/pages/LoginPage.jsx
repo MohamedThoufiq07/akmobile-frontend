@@ -3,6 +3,8 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { useAuth } from '../context/AuthContext';
 import { FiMail, FiLock, FiEye, FiEyeOff } from 'react-icons/fi';
+import { FcGoogle } from 'react-icons/fc';
+import toast from 'react-hot-toast';
 import { Reveal } from '../components/ui/animations';
 import logo from '../assets/logo_dark_text.png';
 
@@ -35,6 +37,10 @@ const LoginPage = () => {
     }
 
     setIsSubmitting(false);
+  };
+
+  const handleGoogleSignIn = () => {
+    toast.success('Google login clicked! (Integration coming soon)');
   };
 
   return (
@@ -114,6 +120,26 @@ const LoginPage = () => {
               {isSubmitting ? 'Signing in...' : 'Sign In'}
             </button>
           </form>
+
+          {/* Divider */}
+          <div className="relative my-4">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-slate-200/80"></div>
+            </div>
+            <div className="relative flex justify-center text-[10px] uppercase tracking-wider font-semibold">
+              <span className="bg-[#f8fafc] px-3 text-slate-400">Or continue with</span>
+            </div>
+          </div>
+
+          {/* Google Button */}
+          <button
+            type="button"
+            onClick={handleGoogleSignIn}
+            className="w-full btn-premium-outline py-3 flex items-center justify-center gap-2.5 text-sm font-bold bg-white text-slate-700 hover:text-slate-800 border border-slate-200/80 shadow-sm"
+          >
+            <FcGoogle className="text-lg" />
+            Continue with Google
+          </button>
 
           <div className="mt-5 text-center text-xs text-slate-500 border-t border-slate-200/80 pt-4">
             Don't have an account?{' '}

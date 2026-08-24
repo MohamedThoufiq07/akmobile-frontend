@@ -33,6 +33,14 @@ const MyOrdersPage = lazy(() => import('./pages/MyOrdersPage'));
 const OrderDetailPage = lazy(() => import('./pages/OrderDetailPage'));
 const WishlistPage = lazy(() => import('./pages/WishlistPage'));
 
+// Policy and Support Pages
+const PrivacyPolicyPage = lazy(() => import('./pages/PrivacyPolicyPage'));
+const TermsConditionsPage = lazy(() => import('./pages/TermsConditionsPage'));
+const RefundCancellationPolicyPage = lazy(() => import('./pages/RefundCancellationPolicyPage'));
+const ShippingDeliveryPolicyPage = lazy(() => import('./pages/ShippingDeliveryPolicyPage'));
+const FAQPage = lazy(() => import('./pages/FAQPage'));
+const TrackOrderPage = lazy(() => import('./pages/TrackOrderPage'));
+
 // Admin (heavy: recharts) — kept out of the main bundle entirely
 const AdminLayout = lazy(() => import('./components/admin/AdminLayout'));
 const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
@@ -86,6 +94,14 @@ function App() {
                   <Route path="wishlist" element={<WishlistPage />} />
                   <Route path="about" element={<AboutPage />} />
                   <Route path="contact" element={<ContactPage />} />
+                  
+                  {/* Policy and Customer Support Routes */}
+                  <Route path="privacy-policy" element={<PrivacyPolicyPage />} />
+                  <Route path="terms-and-conditions" element={<TermsConditionsPage />} />
+                  <Route path="refund-policy" element={<RefundCancellationPolicyPage />} />
+                  <Route path="shipping-policy" element={<ShippingDeliveryPolicyPage />} />
+                  <Route path="faq" element={<FAQPage />} />
+                  <Route path="track-order" element={<TrackOrderPage />} />
                   
                   {/* Profile Route inside layout */}
                   <Route path="profile" element={<ProfilePage />} />
