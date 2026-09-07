@@ -18,7 +18,7 @@ const PrivacyPolicyPage = () => {
     {
       icon: <FiLock className="text-emerald-600" size={20} />,
       title: '3. Payment Security',
-      content: 'All payments are processed securely through certified payment gateways (Razorpay/PayPal/UPI). We do not store your credit/debit card numbers or UPI PINs on our servers. Your transactions are protected with industry-standard SSL encryption.'
+      content: 'All payments are processed securely through Razorpay and supported payment methods. We do not store customers’ credit card numbers, debit card numbers, CVV details or UPI PINs on our servers. Payment information is handled securely by the authorised payment gateway.'
     },
     {
       icon: <FiServer className="text-indigo-600" size={20} />,
@@ -65,7 +65,7 @@ const PrivacyPolicyPage = () => {
             Privacy <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-600 via-indigo-600 to-brand-blue">Policy</span>
           </h1>
           <p className="text-slate-600 text-sm md:text-base font-bold max-w-xl mx-auto">
-            Last Updated: July 30, 2026. Your privacy and data security are our top priorities.
+            Last Updated: September 7, 2026. Your privacy and data security are our top priorities.
           </p>
         </div>
       </section>

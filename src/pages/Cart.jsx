@@ -2,6 +2,7 @@ import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
 import { Reveal, RevealStagger, RevealItem } from '../components/ui/animations';
+import { SHIPPING_THRESHOLD, SHIPPING_CHARGE } from '../utils/constants';
 
 // ─── Error Boundary ───────────────────────────────────────────────────────────
 class ErrorBoundary extends React.Component {
@@ -97,7 +98,8 @@ const CartInner = () => {
   const subtotal   = safeCart.reduce((s, item) => s + (Number(item.price) || 0) * (Number(item.quantity || item.qty) || 1), 0);
   const discount   = promoApplied ? Math.round(subtotal * 0.05) : 0;
   const gst        = Math.round((subtotal - discount) * 0.18);
-  const grandTotal = subtotal - discount + gst;
+  const shipping   = (safeCart.length === 0 || subtotal >= SHIPPING_THRESHOLD) ? 0 : SHIPPING_CHARGE;
+  const grandTotal = Math.max(0, subtotal - discount + shipping);
 
   const handlePromo = () => {
     if (promo.trim().toUpperCase() === 'AK500') setPromoApplied(true);
@@ -227,13 +229,15 @@ const CartInner = () => {
             )}
 
             <div style={styles.summaryRow}>
-              <span style={styles.summaryLabel}>GST (18%)</span>
+              <span style={styles.summaryLabel}>GST (Included)</span>
               <span style={styles.summaryVal}>₹{gst.toLocaleString('en-IN')}</span>
             </div>
 
             <div style={styles.summaryRow}>
               <span style={styles.summaryLabel}>Delivery</span>
-              <span style={styles.freeVal}>FREE</span>
+              <span style={shipping === 0 ? styles.freeVal : styles.summaryVal}>
+                {shipping === 0 ? 'FREE' : `₹${shipping.toLocaleString('en-IN')}`}
+              </span>
             </div>
 
             <div style={styles.summaryDivider} />

@@ -92,7 +92,7 @@ const OrderDetailPage = () => {
     
     // Totals
     doc.text(`Subtotal: Rs. ${order.itemsPrice.toLocaleString('en-IN')}`, 130, finalY);
-    doc.text(`GST (18%): Rs. ${order.taxPrice.toLocaleString('en-IN')}`, 130, finalY + 7);
+    doc.text(`GST (Included): Rs. ${order.taxPrice.toLocaleString('en-IN')}`, 130, finalY + 7);
     doc.text(`Shipping: Rs. ${order.shippingPrice.toLocaleString('en-IN')}`, 130, finalY + 14);
     
     doc.setFontSize(12);
@@ -266,7 +266,7 @@ const OrderDetailPage = () => {
                     <span className="font-medium text-slate-900">{formatPrice(order.itemsPrice)}</span>
                   </div>
                   <div className="flex justify-between text-slate-600">
-                    <span>GST (18%)</span>
+                    <span>GST (Included)</span>
                     <span className="font-medium text-slate-900">{formatPrice(order.taxPrice)}</span>
                   </div>
                   <div className="flex justify-between text-slate-600 border-b border-slate-100 pb-4">

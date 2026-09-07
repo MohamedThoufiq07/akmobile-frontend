@@ -18,7 +18,7 @@ const ShippingDeliveryPolicyPage = () => {
     {
       icon: <FiDollarSign className="text-emerald-600" size={20} />,
       title: '3. Shipping Charges',
-      content: 'We offer FREE standard delivery on all smartphone and accessory orders exceeding ₹999. For orders below this threshold, a nominal shipping fee of ₹49 applies.'
+      content: 'We offer FREE standard delivery on orders with a merchandise subtotal of ₹999 or above. A delivery charge of ₹49 applies when the subtotal is below ₹999. Any applicable delivery charge will be clearly shown before payment.'
     },
     {
       icon: <FiCalendar className="text-indigo-600" size={20} />,
@@ -70,7 +70,7 @@ const ShippingDeliveryPolicyPage = () => {
             Shipping & <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-600 via-indigo-600 to-brand-blue">Delivery</span>
           </h1>
           <p className="text-slate-600 text-sm md:text-base font-bold max-w-xl mx-auto">
-            Last Updated: July 30, 2026. Secure transit and prompt delivery are guaranteed.
+            Last Updated: September 7, 2026. Secure transit and prompt delivery are guaranteed.
           </p>
         </div>
       </section>

@@ -42,7 +42,7 @@ const FAQPage = () => {
     {
       category: 'payments',
       question: 'Is my payment transaction secure?',
-      answer: 'Absolutely. We partner with secure, PCI-DSS compliant payment gateways (Razorpay/PayPal). Your credentials and bank details are fully encrypted and never stored on our database.'
+      answer: 'Absolutely. We partner with secure, PCI-DSS compliant payment gateways (Razorpay and supported payment methods). Your credentials and bank details are fully encrypted and never stored on our database.'
     },
     
     // Shipping
@@ -61,7 +61,7 @@ const FAQPage = () => {
     {
       category: 'returns',
       question: 'What is your return policy?',
-      answer: 'We offer return or exchange requests within 24 hours of delivery for manufacturing defects, wrong items received, or transit damages. Products must be unused and kept in original sealed packaging.'
+      answer: 'We accept return or exchange requests for manufacturing defects, transit damage, or incorrect products when reported within 24 hours of delivery. The product must remain unused and include its original packaging, accessories and invoice. Eligibility is subject to inspection and our Refund & Cancellation Policy.'
     },
     
     // Refunds

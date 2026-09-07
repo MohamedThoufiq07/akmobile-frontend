@@ -1,5 +1,6 @@
 import { createContext, useState, useContext, useMemo, useCallback } from 'react';
 import toast from 'react-hot-toast';
+import { SHIPPING_THRESHOLD, SHIPPING_CHARGE } from '../utils/constants';
 
 const CartContext = createContext();
 
@@ -25,15 +26,15 @@ export const CartProvider = ({ children }) => {
   const { safeCartItems, cartItemCount, cartSubtotal, cartTax, cartShipping, cartTotal } = useMemo(() => {
     const items = Array.isArray(cartItems) ? cartItems : [];
     const subtotal = items.reduce((acc, item) => acc + (Number(item.price) || 0) * item.quantity, 0);
-    const tax = Math.round(subtotal * 0.18); // 18% GST
-    const shipping = subtotal > 50000 || items.length === 0 ? 0 : 99; // Free shipping over 50k
+    const tax = Math.round(subtotal * 0.18); // Included GST amount for information
+    const shipping = items.length === 0 || subtotal >= SHIPPING_THRESHOLD ? 0 : SHIPPING_CHARGE;
     return {
       safeCartItems: items,
       cartItemCount: items.reduce((acc, item) => acc + item.quantity, 0),
       cartSubtotal: subtotal,
       cartTax: tax,
       cartShipping: shipping,
-      cartTotal: subtotal + tax + shipping,
+      cartTotal: subtotal + shipping,
     };
   }, [cartItems]);
 

@@ -78,7 +78,7 @@ const Footer = () => {
             <ul className="space-y-3 text-sm">
               <li className="flex items-start gap-2.5 text-slate-600">
                 <FiMapPin className="text-brand-blue mt-1 flex-shrink-0" size={16} />
-                <span>No 113 B, Near Agarval Eye Hospital,<br />Shakti Nagar, Vriddhachalam 606001</span>
+                <span>No 113 B, Near Agarwal Eye Hospital,<br />Opposite Bus Stand, Junction Road,<br />Shakti Nagar, Vriddhachalam – 606001, Tamil Nadu</span>
               </li>
               <li className="flex items-center gap-2.5 text-slate-600">
                 <FiPhone className="text-brand-blue flex-shrink-0" size={16} />
@@ -112,7 +112,6 @@ const Footer = () => {
             &copy; {new Date().getFullYear()} AK Mobiles. All Rights Reserved.
           </p>
           <div className="flex items-center gap-3 opacity-40 grayscale hover:grayscale-0 transition-all duration-300">
-            <img src="https://upload.wikimedia.org/wikipedia/commons/b/b5/PayPal.svg" alt="PayPal" className="h-5" onError={(e) => e.target.style.display = 'none'} />
             <img src="https://upload.wikimedia.org/wikipedia/commons/2/2a/Mastercard-logo.svg" alt="Mastercard" className="h-6" onError={(e) => e.target.style.display = 'none'} />
             <img src="https://upload.wikimedia.org/wikipedia/commons/5/5e/Visa_Inc._logo.svg" alt="Visa" className="h-4" onError={(e) => e.target.style.display = 'none'} />
             <span className="text-xs font-bold text-slate-500 ml-2">UPI / Razorpay</span>

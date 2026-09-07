@@ -8,10 +8,10 @@ import { Swiper, SwiperSlide } from 'swiper/react';
 import { Pagination, Autoplay } from 'swiper/modules';
 import 'swiper/css';
 import 'swiper/css/pagination';
-const REVIEWS = [
-  { name: 'Raj Kumar', location: 'Chennai', text: 'Best prices in Tamil Nadu! Got my iPhone 15 Pro Max delivered the next day.', product: 'iPhone 15 Pro Max', rating: 5, color: '2563EB' },
-  { name: 'Priya S', location: 'Trichy', text: 'Very genuine products and amazing customer service. Will buy again!', product: 'Samsung Galaxy S24', rating: 5, color: '10B981' },
-  { name: 'Karthik N', location: 'Madurai', text: 'The EMI process was so smooth. Highly recommend AK Mobiles.', product: 'OnePlus 12', rating: 5, color: 'F97316' }
+const COMMITMENTS = [
+  { title: 'Genuine Products', badge: 'Authenticity Guarantee', text: 'All smartphones and accessories are 100% genuine, brand-new, and covered under official manufacturer warranties.', category: 'Product Commitment', color: '2563EB' },
+  { title: 'Customer First', badge: 'Dedicated Assistance', text: 'Our support team assists you with pre-purchase guidance, order tracking, and prompt issue resolution.', category: 'Customer Assistance', color: '10B981' },
+  { title: 'After-Sales Care', badge: 'Reliable Service', text: 'Every order is safely packaged and dispatched with transparent tracking and dedicated after-sales support.', category: 'Support Service', color: 'F97316' }
 ];
 
 const getInitials = (name) => {
@@ -169,7 +169,7 @@ const AboutPage = () => {
                 {[
                   { icon: FiShield, title: '100% Authentic Products', desc: 'We guarantee original products from top brands with official warranty.' },
                   { icon: FiUsers, title: 'Dedicated Customer Support', desc: 'Our support team is always ready to assist you before and after your purchase.' },
-                  { icon: FiCheckCircle, title: 'Easy Returns & Exchange', desc: 'Hassle-free return and exchange policy for your peace of mind.' },
+                  { icon: FiCheckCircle, title: '24-Hour Issue Reporting', desc: 'Report manufacturing defects, transit damage, or incorrect products within 24 hours of delivery. Eligibility is subject to inspection and our Refund & Cancellation Policy.' },
                   { icon: FiAward, title: 'Fast & Secure Delivery', desc: 'Quick delivery across India with safe and secure packaging.' },
                 ].map((item, idx) => (
                   <div key={idx} className="flex items-start gap-4 pb-5 border-b border-slate-200/60 last:border-0 last:pb-0">
@@ -188,7 +188,7 @@ const AboutPage = () => {
                 {[
                   { icon: FiShield, title: '1 Year', sub: 'Warranty' },
                   { icon: FiAward, title: 'Original', sub: 'Products' },
-                  { icon: FiCheckCircle, title: '7 Days', sub: 'Easy Returns' },
+                  { icon: FiCheckCircle, title: '24 Hours', sub: 'Issue Reporting' },
                   { icon: FiUsers, title: 'Pan India', sub: 'Fast Delivery' },
                 ].map((item, idx) => (
                   <div key={idx} className="flex items-center gap-2">
@@ -211,20 +211,20 @@ const AboutPage = () => {
         <div className="container mx-auto px-6 relative z-10">
           <RevealStagger className="grid grid-cols-2 lg:grid-cols-4 gap-8 md:gap-12">
             <RevealItem className="text-center">
-              <div className="text-5xl font-black mb-3 bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">10+</div>
-              <div className="text-xs uppercase tracking-widest font-bold text-slate-400">Years of Service</div>
+              <div className="text-3xl sm:text-4xl font-black mb-3 bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">Genuine</div>
+              <div className="text-xs uppercase tracking-widest font-bold text-slate-400">Product Commitment</div>
             </RevealItem>
             <RevealItem className="text-center">
-              <div className="text-5xl font-black mb-3 bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">50k+</div>
-              <div className="text-xs uppercase tracking-widest font-bold text-slate-400">Happy Customer Visits</div>
+              <div className="text-3xl sm:text-4xl font-black mb-3 bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">Customer First</div>
+              <div className="text-xs uppercase tracking-widest font-bold text-slate-400">Service Approach</div>
             </RevealItem>
             <RevealItem className="text-center">
-              <div className="text-5xl font-black mb-3 bg-gradient-to-r from-emerald-400 to-teal-400 bg-clip-text text-transparent">100%</div>
-              <div className="text-xs uppercase tracking-widest font-bold text-slate-400">Genuine Inventory</div>
+              <div className="text-3xl sm:text-4xl font-black mb-3 bg-gradient-to-r from-emerald-400 to-teal-400 bg-clip-text text-transparent">Local Support</div>
+              <div className="text-xs uppercase tracking-widest font-bold text-slate-400">Customer Assistance</div>
             </RevealItem>
             <RevealItem className="text-center">
-              <div className="text-5xl font-black mb-3 bg-gradient-to-r from-amber-400 to-orange-400 bg-clip-text text-transparent">4.9★</div>
-              <div className="text-xs uppercase tracking-widest font-bold text-slate-400">Average Store Rating</div>
+              <div className="text-3xl sm:text-4xl font-black mb-3 bg-gradient-to-r from-amber-400 to-orange-400 bg-clip-text text-transparent">After-Sales</div>
+              <div className="text-xs uppercase tracking-widest font-bold text-slate-400">Support Service</div>
             </RevealItem>
           </RevealStagger>
         </div>
@@ -290,7 +290,7 @@ const AboutPage = () => {
         </div>
       </section>
 
-      {/* Testimonials / Customer Reviews Section */}
+      {/* Service Commitments Section */}
       <section className="py-24 bg-gradient-to-tr from-blue-50/50 via-purple-50/50 to-pink-50/50 relative overflow-hidden">
         {/* Soft decorative background glows */}
         <div className="absolute top-1/2 left-1/4 w-96 h-96 bg-blue-300/10 rounded-full blur-3xl pointer-events-none"></div>
@@ -299,10 +299,10 @@ const AboutPage = () => {
         <div className="container mx-auto px-6 relative z-10">
           <Reveal className="text-center max-w-2xl mx-auto mb-16">
             <h2 className="text-[clamp(1.875rem,4vw,2.5rem)] font-black text-slate-900 mb-4">
-              What Our Customers Say
+              Our Service Commitments
             </h2>
             <p className="text-slate-500 text-lg">
-              Trusted by 10,000+ happy customers across Tamil Nadu
+              Dedicated to quality service and customer satisfaction across Tamil Nadu
             </p>
           </Reveal>
 
@@ -324,28 +324,28 @@ const AboutPage = () => {
               pagination={{ clickable: true }}
               className="reviews-swiper pb-14"
             >
-              {REVIEWS.map((review, idx) => {
-                const initials = getInitials(review.name);
+              {COMMITMENTS.map((item, idx) => {
+                const initials = getInitials(item.title);
                 return (
                   <SwiperSlide key={idx} className="h-auto py-2">
                     <motion.div
                       whileHover={{
                         y: -8,
-                        boxShadow: `0 20px 25px -5px #${review.color}20, 0 8px 10px -6px #${review.color}20`,
-                        borderColor: `#${review.color}50`
+                        boxShadow: `0 20px 25px -5px #${item.color}20, 0 8px 10px -6px #${item.color}20`,
+                        borderColor: `#${item.color}50`
                       }}
                       className="bg-white p-8 rounded-2xl border border-slate-200/60 shadow-sm flex flex-col justify-between h-full transition-colors duration-300 cursor-grab active:cursor-grabbing"
                     >
                       <div>
-                        {/* Stars */}
+                        {/* Commitment Rating / Quality Icon */}
                         <div className="flex gap-1 mb-5">
-                          {[...Array(review.rating)].map((_, i) => (
+                          {[...Array(5)].map((_, i) => (
                             <FiStar key={i} className="fill-yellow-400 text-yellow-400" size={18} />
                           ))}
                         </div>
                         {/* Text */}
                         <p className="text-slate-600 font-medium italic text-base leading-relaxed mb-6">
-                          "{review.text}"
+                          "{item.text}"
                         </p>
                       </div>
                       
@@ -354,13 +354,13 @@ const AboutPage = () => {
                         {/* Initial Circle with Dynamic Background Color */}
                         <div 
                           className="w-12 h-12 rounded-full flex items-center justify-center font-bold text-white shadow-md text-base tracking-wider shrink-0"
-                          style={{ backgroundColor: `#${review.color}` }}
+                          style={{ backgroundColor: `#${item.color}` }}
                         >
                           {initials}
                         </div>
                         <div>
-                          <h4 className="font-extrabold text-sm text-slate-800">{review.name}</h4>
-                          <p className="text-xs text-slate-400 font-medium">{review.location} • Bought {review.product}</p>
+                          <h4 className="font-extrabold text-sm text-slate-800">{item.title}</h4>
+                          <p className="text-xs text-slate-400 font-medium">{item.badge} • {item.category}</p>
                         </div>
                       </div>
                     </motion.div>

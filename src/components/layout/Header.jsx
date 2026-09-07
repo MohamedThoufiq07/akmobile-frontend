@@ -15,6 +15,7 @@ const Header = () => {
   const { pathname, search } = useLocation();
 
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const [scrolled, setScrolled] = useState(false);
@@ -34,11 +35,17 @@ const Header = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  useEffect(() => {
+    setIsMobileSearchOpen(false);
+    setIsMenuOpen(false);
+  }, [pathname, search]);
+
   const handleSearch = (e) => {
     e.preventDefault();
     if (searchQuery.trim()) {
       navigate(`/search?q=${encodeURIComponent(searchQuery)}`);
       setIsMenuOpen(false);
+      setIsMobileSearchOpen(false);
     }
   };
 
@@ -48,7 +55,9 @@ const Header = () => {
     navigate('/');
   };
 
-  const closeMenu = () => setIsMenuOpen(false);
+  const closeMenu = () => {
+    setIsMenuOpen(false);
+  };
 
   return (
     <>
@@ -106,8 +115,22 @@ const Header = () => {
             </Link>
           </nav>
 
-          {/* Actions (Cart & User Profile) */}
-          <div className="flex items-center gap-4 z-50 shrink-0">
+          {/* Actions (Search, Wishlist, Cart & User Profile) */}
+          <div className="flex items-center gap-2 sm:gap-3 lg:gap-4 z-50 shrink-0">
+            {/* Mobile Search Button (Near Wishlist after Brand Logo) */}
+            <button
+              type="button"
+              onClick={() => setIsMobileSearchOpen((prev) => !prev)}
+              className={`lg:hidden relative p-2 transition-all rounded-full ${
+                isMobileSearchOpen
+                  ? 'text-brand-blue bg-pink-50 ring-2 ring-brand-blue/20'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+              aria-label="Toggle search"
+            >
+              <FiSearch size={22} />
+            </button>
+
             {/* Wishlist */}
             <Link to="/wishlist" className="relative text-slate-600 hover:text-red-500 transition-colors p-2">
               <FiHeart size={22} />
@@ -193,6 +216,48 @@ const Header = () => {
             </button>
           </div>
         </div>
+
+        {/* Mobile Expandable Search Bar */}
+        <AnimatePresence>
+          {isMobileSearchOpen && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.2 }}
+              className="lg:hidden px-4 pt-2.5 pb-1 border-t border-slate-100 bg-white"
+            >
+              <form onSubmit={handleSearch} className="relative w-full flex items-center gap-2">
+                <div className="relative flex-grow">
+                  <FiSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <input
+                    type="text"
+                    autoFocus
+                    placeholder="Search phones, brands, accessories..."
+                    className="w-full py-2 pl-10 pr-9 bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-blue focus:bg-white text-slate-800 placeholder-slate-400 text-sm rounded-full transition-all"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                    >
+                      <FiX size={15} />
+                    </button>
+                  )}
+                </div>
+                <button
+                  type="submit"
+                  className="bg-brand-blue hover:bg-brand-blueHover text-white px-4 py-2 rounded-full text-xs font-bold shrink-0 transition-colors shadow-sm"
+                >
+                  Search
+                </button>
+              </form>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </header>
 
       {/* Mobile Slide-in Drawer */}
@@ -204,7 +269,7 @@ const Header = () => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm z-[60] lg:hidden"
+              className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[60] lg:hidden"
               onClick={closeMenu}
             />
 
@@ -214,83 +279,87 @@ const Header = () => {
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
               transition={{ type: 'tween', duration: 0.3 }}
-              className="fixed top-0 right-0 h-full w-[300px] sm:w-[350px] bg-white/95 backdrop-blur-2xl z-[70] shadow-2xl flex flex-col lg:hidden border-l border-slate-200"
+              className="fixed top-0 right-0 h-full w-[310px] sm:w-[350px] bg-white z-[70] shadow-2xl flex flex-col lg:hidden border-l border-slate-200"
             >
-              <div className="flex items-center justify-between p-5 border-b border-slate-100">
+              {/* Drawer Header */}
+              <div className="flex items-center justify-between p-4 px-5 border-b border-slate-100">
                 <div className="flex items-center gap-2">
                   <img src={logo} alt="AK Mobiles" className="h-10 w-auto object-contain -translate-y-0.5" />
                 </div>
-                <button onClick={closeMenu} className="p-2 bg-slate-100 rounded-full text-slate-600 hover:text-slate-900 hover:bg-slate-200">
+                <button
+                  onClick={closeMenu}
+                  className="p-2 bg-slate-100 rounded-full text-slate-600 hover:text-slate-900 hover:bg-slate-200 transition-colors"
+                  aria-label="Close menu"
+                >
                   <FiX size={20} />
                 </button>
               </div>
 
-              <div className="flex-grow overflow-y-auto pb-8">
-                <div className="p-5 border-b border-slate-100">
-                  <form onSubmit={handleSearch} className="relative">
-                    <input
-                      type="text"
-                      placeholder="Search..."
-                      className="w-full py-2.5 pl-11 pr-4 bg-slate-50 rounded-full focus:outline-none focus:ring-2 focus:ring-brand-blue text-slate-800 placeholder-slate-450 border border-slate-250 hover:border-slate-350 transition-all text-sm"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                    />
-                    <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  </form>
-                </div>
-
-                <div className="p-3">
-                  <ul className="space-y-1">
-                    <li>
-                      <Link to="/" onClick={closeMenu} className="flex items-center justify-between px-4 py-3 rounded-xl hover:bg-slate-50 text-slate-800 font-semibold">
-                        Home <FiChevronRight className="text-slate-400" />
-                      </Link>
-                    </li>
-                    <li>
-                      <Link to="/products" onClick={closeMenu} className="flex items-center justify-between px-4 py-3 rounded-xl hover:bg-slate-50 text-slate-650 hover:text-slate-800 font-semibold">
-                        Shop <FiChevronRight className="text-slate-400" />
-                      </Link>
-                    </li>
-
-                    <li>
-                      <Link to="/about" onClick={closeMenu} className="flex items-center justify-between px-4 py-3 rounded-xl hover:bg-slate-50 text-slate-650 hover:text-slate-800 font-semibold">
-                        About <FiChevronRight className="text-slate-400" />
-                      </Link>
-                    </li>
-                    <li>
-                      <Link to="/contact" onClick={closeMenu} className="flex items-center justify-between px-4 py-3 rounded-xl hover:bg-slate-50 text-slate-650 hover:text-slate-800 font-semibold">
-                        Contact <FiChevronRight className="text-slate-400" />
-                      </Link>
-                    </li>
-                  </ul>
-                </div>
-
-                <div className="p-5 bg-slate-50 mt-auto border-t border-slate-100">
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Account</p>
-                  {isAuthenticated ? (
-                    <ul className="space-y-2">
-                      <li>
-                        <div className="flex items-center gap-3 mb-4 px-2 py-2 bg-white rounded-xl border border-slate-200">
-                          <div className="bg-gradient-to-r from-brand-blue to-purple-600 h-10 w-10 rounded-lg flex items-center justify-center font-bold text-white uppercase">
-                            {user?.name?.charAt(0) || 'U'}
-                          </div>
-                          <div>
-                            <p className="font-bold text-sm text-slate-800">{user?.name}</p>
-                            <p className="text-xs text-slate-500">{user?.email}</p>
-                          </div>
-                        </div>
-                      </li>
-                      <li><Link to="/profile" onClick={closeMenu} className="flex items-center gap-3 px-2 py-2 text-slate-650 font-medium hover:text-slate-800"><FiUser /> My Profile</Link></li>
-                      <li><Link to="/my-orders" onClick={closeMenu} className="flex items-center gap-3 px-2 py-2 text-slate-650 font-medium hover:text-slate-800"><FiShoppingCart /> My Orders</Link></li>
-                      <li><button onClick={() => { handleLogout(); closeMenu(); }} className="flex items-center gap-3 px-2 py-2 text-red-600 font-semibold w-full text-left hover:bg-red-50 rounded-lg"><FiLogOut /> Logout</button></li>
-                    </ul>
-                  ) : (
-                    <div className="space-y-3">
-                      <Link to="/login" onClick={closeMenu} className="btn-premium w-full justify-center">Login</Link>
-                      <Link to="/register" onClick={closeMenu} className="btn-premium-outline w-full justify-center">Create Account</Link>
-                    </div>
-                  )}
-                </div>
+              {/* Drawer Navigation Links */}
+              <div className="flex-grow overflow-y-auto p-4 space-y-1">
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-3 mb-2">Navigation</p>
+                <ul className="space-y-1">
+                  <li>
+                    <Link
+                      to="/"
+                      onClick={closeMenu}
+                      className={`flex items-center justify-between px-4 py-3 rounded-xl font-semibold transition-all ${
+                        isActive('/') ? 'bg-pink-50/70 text-brand-blue font-bold' : 'text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span>Home</span>
+                      <FiChevronRight className={isActive('/') ? 'text-brand-blue' : 'text-slate-400'} size={18} />
+                    </Link>
+                  </li>
+                  <li>
+                    <Link
+                      to="/products"
+                      onClick={closeMenu}
+                      className={`flex items-center justify-between px-4 py-3 rounded-xl font-semibold transition-all ${
+                        isActive('/products') && !search ? 'bg-pink-50/70 text-brand-blue font-bold' : 'text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span>Shop</span>
+                      <FiChevronRight className={isActive('/products') && !search ? 'text-brand-blue' : 'text-slate-400'} size={18} />
+                    </Link>
+                  </li>
+                  <li>
+                    <Link
+                      to="/about"
+                      onClick={closeMenu}
+                      className={`flex items-center justify-between px-4 py-3 rounded-xl font-semibold transition-all ${
+                        isActive('/about') ? 'bg-pink-50/70 text-brand-blue font-bold' : 'text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span>About</span>
+                      <FiChevronRight className={isActive('/about') ? 'text-brand-blue' : 'text-slate-400'} size={18} />
+                    </Link>
+                  </li>
+                  <li>
+                    <Link
+                      to="/contact"
+                      onClick={closeMenu}
+                      className={`flex items-center justify-between px-4 py-3 rounded-xl font-semibold transition-all ${
+                        isActive('/contact') ? 'bg-pink-50/70 text-brand-blue font-bold' : 'text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span>Contact</span>
+                      <FiChevronRight className={isActive('/contact') ? 'text-brand-blue' : 'text-slate-400'} size={18} />
+                    </Link>
+                  </li>
+                  <li>
+                    <Link
+                      to={isAuthenticated ? '/profile' : '/login'}
+                      onClick={closeMenu}
+                      className={`flex items-center justify-between px-4 py-3 rounded-xl font-semibold transition-all ${
+                        isActive('/profile') ? 'bg-pink-50/70 text-brand-blue font-bold' : 'text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span>Account</span>
+                      <FiChevronRight className={isActive('/profile') ? 'text-brand-blue' : 'text-slate-400'} size={18} />
+                    </Link>
+                  </li>
+                </ul>
               </div>
             </motion.div>
           </>

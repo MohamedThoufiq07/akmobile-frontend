@@ -74,3 +74,6 @@ export const STATUS_COLORS = {
   Delivered: 'bg-green-100 text-green-800',
   Cancelled: 'bg-red-100 text-red-800',
 };
+
+export const SHIPPING_THRESHOLD = 999;
+export const SHIPPING_CHARGE = 49;

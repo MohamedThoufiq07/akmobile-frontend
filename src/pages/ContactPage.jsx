@@ -164,7 +164,7 @@ const ContactPage = () => {
                       <p className="text-slate-700 text-sm leading-relaxed font-bold">
                         No 113 B, Near Agarwal Eye Hospital, <br />
                         Opposite Bus Stand, Junction Road, <br />
-                        Shakti Nagar, Vriddhachalam-606001, TN.
+                        Shakti Nagar, Vriddhachalam – 606001, Tamil Nadu.
                       </p>
                     </div>
                   </div>
@@ -188,7 +188,7 @@ const ContactPage = () => {
                     </div>
                     <div>
                       <h3 className="font-extrabold text-[10px] text-slate-400 uppercase tracking-widest mb-1">Email Helpdesk</h3>
-                      <a href="mailto:support@akmobiles.com" className="text-blue-600 font-black hover:underline transition-colors text-sm break-all">support@akmobiles.com</a>
+                      <a href="mailto:info@akmobiles.in" className="text-blue-600 font-black hover:underline transition-colors text-sm break-all">info@akmobiles.in</a>
                     </div>
                   </div>
 

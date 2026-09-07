@@ -357,7 +357,7 @@ const CheckoutPage = () => {
                       <span className="font-semibold text-slate-900">{formatPrice(cartSubtotal)}</span>
                     </div>
                     <div className="flex justify-between text-slate-600">
-                      <span>GST (18%)</span>
+                      <span>GST (Included)</span>
                       <span className="font-semibold text-slate-900">{formatPrice(cartTax)}</span>
                     </div>
                     <div className="flex justify-between text-slate-600 border-b border-slate-100 pb-4">
