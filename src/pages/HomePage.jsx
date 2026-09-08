@@ -25,38 +25,38 @@ import bannerAirpods from '../assets/banners/banner-airpods.png';
 // --- DEMO DATA ---
 const DEMO_PRODUCTS = [
   {
-    id: 1, name: "iPhone 15 Pro 256GB", brand: "Apple",
-    price: 134900, offer: 119999, discount: 11,
+    id: 1, name: "iPhone 15 Pro Max", brand: "Apple",
+    price: 16, offer: 14, discount: 13,
     rating: 4.8, reviews: 2341, tag: "HOT",
     image: "https://img-prd-pim.poorvika.com/cdn-cgi/image/width=500,height=500,quality=75/product/Apple-iphone-15-pro-natural-titanium-512gb-Front-Back-View.png"
   },
   {
     id: 2, name: "Samsung Galaxy S24 Ultra", brand: "Samsung",
-    price: 129999, offer: 119999, discount: 8,
+    price: 13, offer: 12, discount: 8,
     rating: 4.9, reviews: 1820, tag: "NEW",
     image: "https://static0.xdaimages.com/wordpress/wp-content/uploads/2024/01/galaxy-s24-ultra-1.png?q=50&fit=contain&w=420&dpr=1.5"
   },
   {
-    id: 3, name: "OnePlus 12 12GB/256GB", brand: "OnePlus",
-    price: 64999, offer: 57999, discount: 10,
+    id: 3, name: "OnePlus 12", brand: "OnePlus",
+    price: 69, offer: 64, discount: 7,
     rating: 4.6, reviews: 1240, tag: "HOT",
     image: "https://image01-in.oneplus.net/media/202407/04/9052428d8c69bd8bb884c7913af5fa73.png"
   },
   {
-    id: 4, name: "Redmi Note 13 Pro+", brand: "Xiaomi",
-    price: 31999, offer: 25999, discount: 19,
+    id: 4, name: "Redmi Note 13 Pro+ 5G", brand: "Xiaomi",
+    price: 32, offer: 28, discount: 13,
     rating: 4.5, reviews: 3100, tag: "SALE",
     image: "https://i03.appmifile.com/789_item_in/04/07/2024/291d6375bb3ce600675227b27a29ac3c.png"
   },
   {
-    id: 5, name: "Vivo V30 Pro 12GB/512GB", brand: "Vivo",
-    price: 41999, offer: 36999, discount: 12,
+    id: 5, name: "Vivo V30 Pro", brand: "Vivo",
+    price: 39, offer: 34, discount: 13,
     rating: 4.4, reviews: 980, tag: "NEW",
     image: "https://in-exstatic-vivofs.vivo.com/gdHFRinHEMrj3yPG/1709633883246/7e1e7e35082e2abf290ec7c423d4361f.png"
   },
   {
     id: 6, name: "Realme 12 Pro+ 5G", brand: "Realme",
-    price: 29999, offer: 24999, discount: 16,
+    price: 28, offer: 25, discount: 11,
     rating: 4.3, reviews: 760, tag: "SALE",
     image: "https://img-prd-pim.poorvika.com/cdn-cgi/image/width=500,height=500,quality=75/product/realme-12-pro-5g-Navigator-beige-256gb-8gb-ram-front-back-view.png"
   },
@@ -274,16 +274,17 @@ const toCard = (p) => ({
   id: p._id,
   name: p.name,
   brand: p.brand,
-  price: p.originalPrice || p.price || 0,
-  offer: p.offerPrice || p.offer || 0,
-  offerPrice: p.offerPrice || p.offer || 0,
-  originalPrice: p.originalPrice || p.price || 0,
-  discount: p.discount || 0,
+  price: Number(p.originalPrice ?? p.original_price ?? p.price ?? 0),
+  offer: Number(p.offerPrice ?? p.offer_price ?? p.offer ?? 0),
+  offerPrice: Number(p.offerPrice ?? p.offer_price ?? p.offer ?? 0),
+  originalPrice: Number(p.originalPrice ?? p.original_price ?? p.price ?? 0),
+  discount: p.discount ?? (p.originalPrice && p.offerPrice ? Math.round(((p.originalPrice - p.offerPrice) / p.originalPrice) * 100) : 0),
   rating: p.rating || 4.5,
   reviews: p.numReviews || p.reviews || 0,
-  stock: p.stock,
-  image: p.images?.[0]?.url || p.image,
+  stock: p.stock !== undefined ? p.stock : 20,
+  image: p.images?.[0]?.url || p.image || `https://placehold.co/600x600/f1f5f9/64748b?text=${encodeURIComponent(p.brand || 'Product')}`,
   images: p.images,
+  tag: p.isFeatured ? 'HOT' : (p.flashSale ? 'SALE' : null),
 });
 
 const HomePage = () => {
@@ -299,13 +300,17 @@ const HomePage = () => {
       try {
         setLoading(true);
         const [prodRes, setRes] = await Promise.all([
-          api.get('/products?limit=24').catch(() => ({ data: { products: [] } })),
+          api.get('/products?limit=52').catch(() => ({ data: { products: [] } })),
           api.get('/settings').catch(() => ({ data: { settings: null } }))
         ]);
         
-        const allProds = prodRes.data.products || [];
-        setRealProducts(allProds);
-        setFlashSaleProducts(allProds.filter(p => p.flashSale === true).slice(0, 8));
+        const allProds = Array.isArray(prodRes.data?.products) ? prodRes.data.products : [];
+        // Shuffle products randomly on every page load/refresh
+        const shuffled = [...allProds].sort(() => Math.random() - 0.5);
+        setRealProducts(shuffled);
+        
+        const flashSales = shuffled.filter(p => p.flashSale === true);
+        setFlashSaleProducts(flashSales.length > 0 ? flashSales.slice(0, 6) : shuffled.slice(0, 6));
         
         const settingsData = setRes.data?.settings;
         setFlashSettings(settingsData || null);
@@ -344,16 +349,13 @@ const HomePage = () => {
 
   const pad = (num) => String(num).padStart(2, '0');
 
-  const getMappedProduct = (demoProduct) => {
-    if (!realProducts || realProducts.length === 0) return demoProduct;
-    let match = realProducts.find(p => p.name.toLowerCase().includes(demoProduct.name.toLowerCase()));
-    if (match) return toCard(match);
-    return demoProduct;
-  };
+  const allCardProducts = realProducts.length > 0
+    ? realProducts.map(toCard)
+    : DEMO_PRODUCTS;
 
   const filteredProducts = filter === 'All'
-    ? DEMO_PRODUCTS.map(getMappedProduct)
-    : DEMO_PRODUCTS.filter(p => p.brand === filter).map(getMappedProduct);
+    ? allCardProducts.slice(0, 12)
+    : allCardProducts.filter(p => p.brand?.toLowerCase() === filter.toLowerCase()).slice(0, 12);
 
   return (
     <div className="bg-slate-50 min-h-screen pb-12">
@@ -476,7 +478,7 @@ const HomePage = () => {
               </div>
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                {(flashCards || DEMO_PRODUCTS.map(getMappedProduct)).slice(0, 6).map((product) => (
+                {((flashCards && flashCards.length > 0) ? flashCards : allCardProducts).slice(0, 6).map((product) => (
                   <ProductCardUI key={product.id || product._id} product={{ ...product, tag: 'DEAL' }} />
                 ))}
               </div>
