@@ -21,6 +21,7 @@ import bannerSmartphones from '../assets/banners/banner-smartphones.png';
 import bannerLaptops from '../assets/banners/banner-laptops.png';
 import bannerAccessories from '../assets/banners/banner-accessories.png';
 import bannerAirpods from '../assets/banners/banner-airpods.png';
+import { getValidImageUrl } from '../utils/imageHelper';
 
 // --- DEMO DATA ---
 const DEMO_PRODUCTS = [
@@ -212,7 +213,7 @@ const ProductCardUI = ({ product, disableHover = false }) => {
 
       <Link to={detailUrl} className="block relative h-48 sm:h-52 mb-4 mt-2 overflow-hidden flex items-center justify-center p-4">
         <img
-          src={product.image}
+          src={getValidImageUrl(product.image, product.name)}
           alt={product.name}
           loading="lazy"
           decoding="async"

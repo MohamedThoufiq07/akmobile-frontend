@@ -8,6 +8,8 @@ import { useAuth } from '../context/AuthContext';
 import { formatPrice } from '../utils/formatPrice';
 import toast from 'react-hot-toast';
 import { Reveal } from '../components/ui/animations';
+import logo from '../assets/logo.png';
+import { getValidImageUrl } from '../utils/imageHelper';
 
 const CheckoutStepBar = () => {
   const steps = ['Browse', 'Cart', 'Checkout', 'Payment'];
@@ -135,12 +137,32 @@ const CheckoutPage = () => {
         orderId: internalOrderId
       });
 
-      // 4. Configure Razorpay Standard Checkout options
+      // 4. Determine safe public HTTPS merchant logo URL (never localhost / HTTP / product image)
+      let merchantLogoUrl;
+      if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+        const hostname = window.location.hostname.toLowerCase();
+        const isLocal =
+          hostname === 'localhost' ||
+          hostname === '127.0.0.1' ||
+          hostname === '::1' ||
+          hostname === '0.0.0.0' ||
+          hostname.endsWith('.localhost');
+        if (!isLocal && logo) {
+          try {
+            merchantLogoUrl = new URL(logo, window.location.origin).href;
+          } catch {
+            merchantLogoUrl = undefined;
+          }
+        }
+      }
+
+      // Configure Razorpay Standard Checkout options
       const options = {
         key: rzpData.key,
         amount: rzpData.amount,
         currency: rzpData.currency,
         name: 'AK Mobiles',
+        ...(merchantLogoUrl ? { image: merchantLogoUrl } : {}),
         description: rzpData.description || `Order #${internalOrderId}`,
         order_id: rzpData.orderId,
         prefill: {
@@ -352,7 +374,7 @@ const CheckoutPage = () => {
                     {cartItems.map((item) => (
                       <div key={item.product} className="flex gap-3">
                         <div className="w-16 h-16 shrink-0 bg-white border border-slate-100 rounded-md p-1 relative z-10">
-                          <img src={item.image} alt={item.name} className="w-full h-full object-contain" />
+                          <img src={getValidImageUrl(item.image, item.name)} alt={item.name} className="w-full h-full object-contain" />
                           <span className="absolute -top-1.5 -right-1.5 bg-[#534AB7] text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full shadow-sm z-20">
                             {item.quantity}
                           </span>

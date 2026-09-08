@@ -8,6 +8,7 @@ import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import { Reveal } from '../components/ui/animations';
+import { getValidImageUrl } from '../utils/imageHelper';
 
 const OrderDetailPage = () => {
   const { id } = useParams();
@@ -234,7 +235,7 @@ const OrderDetailPage = () => {
                   {order.orderItems.map((item, index) => (
                     <div key={index} className="flex gap-4 items-center pb-6 border-b border-slate-100 last:border-0 last:pb-0">
                       <div className="w-20 h-20 bg-slate-50 rounded-xl p-2 border border-slate-100 shrink-0">
-                        <img src={item.image} alt={item.name} className="w-full h-full object-contain" />
+                        <img src={getValidImageUrl(item.image, item.name)} alt={item.name} className="w-full h-full object-contain" />
                       </div>
                       <div className="flex-1">
                         <Link to={`/products/${item.product._id || item.product}`} className="font-bold text-slate-900 hover:text-brand-orange text-base line-clamp-2 mb-1">

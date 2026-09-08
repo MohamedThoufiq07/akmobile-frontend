@@ -8,6 +8,7 @@ import { useCart } from '../context/CartContext';
 import { formatPrice } from '../utils/formatPrice';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import { Reveal, RevealStagger, RevealItem } from '../components/ui/animations';
+import { getValidImageUrl } from '../utils/imageHelper';
 
 const WishlistPage = () => {
   const { wishlist, toggleWishlist } = useWishlist();
@@ -92,7 +93,7 @@ const WishlistPage = () => {
                   {/* Image */}
                   <div className="w-full aspect-square bg-slate-50 rounded-xl p-4 border border-slate-100 mb-4 flex items-center justify-center">
                     <Link to={`/products/${product._id}`} className="block w-full h-full">
-                      <img src={product.images?.[0]?.url} alt={product.name} className="w-full h-full object-contain" />
+                      <img src={getValidImageUrl(product.images?.[0]?.url, product.name)} alt={product.name} className="w-full h-full object-contain" />
                     </Link>
                   </div>
 

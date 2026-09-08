@@ -7,6 +7,7 @@ import { formatPrice } from '../utils/formatPrice';
 import { STATUS_COLORS } from '../utils/constants';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import { Reveal, RevealStagger, RevealItem } from '../components/ui/animations';
+import { getValidImageUrl } from '../utils/imageHelper';
 
 const MyOrdersPage = () => {
   const [orders, setOrders] = useState([]);
@@ -111,7 +112,7 @@ const MyOrdersPage = () => {
                         {order.orderItems.map((item, index) => (
                           <div key={index} className="flex gap-4 items-center">
                             <div className="w-16 h-16 bg-slate-50 rounded-lg p-1 border border-slate-100 shrink-0">
-                              <img src={item.image} alt={item.name} className="w-full h-full object-contain" />
+                              <img src={getValidImageUrl(item.image, item.name)} alt={item.name} className="w-full h-full object-contain" />
                             </div>
                             <div>
                               <Link to={`/products/${item.product._id || item.product}`} className="font-semibold text-slate-900 hover:text-brand-orange text-sm line-clamp-1">

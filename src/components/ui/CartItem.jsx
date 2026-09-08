@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { FiTrash2, FiMinus, FiPlus } from 'react-icons/fi';
 import { useCart } from '../../context/CartContext';
 import { formatPrice } from '../../utils/formatPrice';
+import { getValidImageUrl } from '../../utils/imageHelper';
 
 const CartItem = ({ item }) => {
   const { updateQuantity, removeFromCart } = useCart();
@@ -12,7 +13,7 @@ const CartItem = ({ item }) => {
       <div className="w-24 h-24 sm:w-28 sm:h-28 shrink-0 bg-slate-50 rounded-xl p-2 border border-slate-100 flex items-center justify-center">
         <Link to={`/products/${item.product}`}>
           <img 
-            src={item.image || 'https://placehold.co/100x100/eeeeee/999999'} 
+            src={getValidImageUrl(item.image, item.name)} 
             alt={item.name}
             className="w-full h-full object-contain"
           />

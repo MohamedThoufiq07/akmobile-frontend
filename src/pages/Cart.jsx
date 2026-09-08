@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
 import { Reveal, RevealStagger, RevealItem } from '../components/ui/animations';
 import { SHIPPING_THRESHOLD, SHIPPING_CHARGE } from '../utils/constants';
+import { getValidImageUrl } from '../utils/imageHelper';
 
 // ─── Error Boundary ───────────────────────────────────────────────────────────
 class ErrorBoundary extends React.Component {
@@ -149,7 +150,7 @@ const CartInner = () => {
                   {/* Phone Image */}
                   <div style={styles.imgBox}>
                     <img
-                      src={item.image}
+                      src={getValidImageUrl(item.image, item.name)}
                       alt={item.name}
                       style={styles.itemImg}
                       onError={(e) => {
