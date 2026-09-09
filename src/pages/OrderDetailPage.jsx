@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { FiArrowLeft, FiDownload, FiCheck, FiCheckCircle, FiPackage, FiTruck, FiMapPin, FiInfo, FiRefreshCw } from 'react-icons/fi';
+import { FiArrowLeft, FiDownload, FiCheck, FiCheckCircle, FiPackage, FiTruck, FiMapPin, FiInfo, FiRefreshCw, FiAlertTriangle } from 'react-icons/fi';
 import api from '../utils/api';
 import { formatPrice } from '../utils/formatPrice';
 import { jsPDF } from 'jspdf';
@@ -10,6 +10,7 @@ import LoadingSpinner from '../components/ui/LoadingSpinner';
 import { Reveal } from '../components/ui/animations';
 import { getValidImageUrl } from '../utils/imageHelper';
 import toast from 'react-hot-toast';
+import logo from '../assets/logo.png';
 
 const maskPaymentId = (pid) => {
   if (!pid || typeof pid !== 'string') return '';
@@ -22,6 +23,8 @@ const OrderDetailPage = () => {
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const fetchOrder = async (isBackground = false) => {
     if (!isBackground) setLoading(true);
@@ -42,7 +45,6 @@ const OrderDetailPage = () => {
     fetchOrder();
     window.scrollTo(0, 0);
 
-    // Refetch when tab/page becomes visible again
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         fetchOrder(true);
@@ -50,7 +52,6 @@ const OrderDetailPage = () => {
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
-    // Poll backend every 30s while order is non-terminal (not Delivered / Cancelled)
     const intervalId = setInterval(() => {
       setOrder((currentOrder) => {
         if (currentOrder && (currentOrder.orderStatus === 'Delivered' || currentOrder.orderStatus === 'Cancelled')) {
@@ -68,15 +69,161 @@ const OrderDetailPage = () => {
     };
   }, [id]);
 
-  const generateInvoice = () => {
-    if (!order) return;
+  const loadRazorpayScript = () => {
+    return new Promise((resolve) => {
+      if (window.Razorpay) {
+        return resolve(true);
+      }
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+  };
+
+  const handleRetryPayment = async () => {
+    if (isRetrying || !order) return;
+    setIsRetrying(true);
 
     try {
+      const sdkReady = await loadRazorpayScript();
+      if (!sdkReady) {
+        toast.error('Razorpay SDK failed to load. Please check your connection.');
+        setIsRetrying(false);
+        return;
+      }
+
+      // 1. Call authenticated backend create-order endpoint
+      const { data: rzpData } = await api.post('/payments/razorpay/create-order/', {
+        orderId: order._id
+      });
+
+      let merchantLogoUrl;
+      if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+        const hostname = window.location.hostname.toLowerCase();
+        const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
+        if (!isLocal && logo) {
+          try {
+            merchantLogoUrl = new URL(logo, window.location.origin).href;
+          } catch {
+            merchantLogoUrl = undefined;
+          }
+        }
+      }
+
+      const ship = order.shippingAddress || {};
+
+      const options = {
+        key: rzpData.key,
+        amount: rzpData.amount,
+        currency: rzpData.currency,
+        name: 'AK Mobiles',
+        ...(merchantLogoUrl ? { image: merchantLogoUrl } : {}),
+        description: rzpData.description || `Order #${order._id}`,
+        order_id: rzpData.orderId,
+        prefill: {
+          name: ship.name || order.user?.name || '',
+          email: ship.email || order.user?.email || '',
+          contact: ship.phone || ''
+        },
+        theme: {
+          color: '#0F172A'
+        },
+        modal: {
+          ondismiss: async function () {
+            setIsRetrying(false);
+            try {
+              await api.post('/payments/razorpay/checkout-dismissed/', {
+                orderId: order._id
+              });
+            } catch (err) {
+              console.warn('Failed to notify backend of checkout dismissal:', err);
+            }
+            toast('Payment cancelled. You can retry anytime.', { icon: 'ℹ️' });
+            fetchOrder();
+          }
+        },
+        handler: async function (response) {
+          try {
+            const { data: verifyRes } = await api.post('/payments/razorpay/verify-payment/', {
+              orderId: order._id,
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature
+            });
+
+            if (verifyRes.status === 'captured') {
+              toast.success('Payment successful! Order confirmed.');
+              fetchOrder();
+            } else {
+              toast(verifyRes.message || 'Payment processing...', { icon: '⏳' });
+              fetchOrder();
+            }
+          } catch (err) {
+            toast.error(err.response?.data?.message || 'Payment verification failed.');
+          } finally {
+            setIsRetrying(false);
+          }
+        }
+      };
+
+      const paymentObject = new window.Razorpay(options);
+      paymentObject.on('payment.failed', function (response) {
+        toast.error(`Payment failed: ${response.error?.description || 'Please try again.'}`);
+        setIsRetrying(false);
+      });
+      paymentObject.open();
+
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to initiate payment retry.');
+      setIsRetrying(false);
+    }
+  };
+
+  const handleDownloadInvoice = async () => {
+    if (!order) return;
+    const paymentInfo = order.paymentInfo || {};
+    const isCompleted = paymentInfo.status === 'Completed' && order.orderStatus !== 'AwaitingPayment';
+
+    if (!isCompleted) {
+      toast.error('Invoice is available only after payment is completed.');
+      return;
+    }
+
+    setIsDownloading(true);
+    try {
+      // First try to fetch official backend PDF
+      const response = await api.get(`/orders/${order._id}/invoice`, {
+        responseType: 'blob'
+      });
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `Invoice_${order._id}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+      toast.success('Invoice downloaded successfully');
+    } catch (err) {
+      // Fallback to client-side jsPDF if server PDF generation is unavailable
+      if (err.response?.status === 409 || err.response?.status === 403) {
+        toast.error(err.response?.data?.message || 'Invoice unavailable.');
+      } else {
+        generateClientInvoiceFallback();
+      }
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  const generateClientInvoiceFallback = () => {
+    try {
       const doc = new jsPDF();
-      
-      // Header
       doc.setFontSize(22);
-      doc.setTextColor(24, 58, 95); // Brand Blue
+      doc.setTextColor(24, 58, 95);
       doc.text('AK MOBILES', 14, 20);
       
       doc.setFontSize(10);
@@ -84,13 +231,11 @@ const OrderDetailPage = () => {
       doc.text('Main Road, Near Bus Stand, Virudhachalam, TN - 606001', 14, 27);
       doc.text('Payment Receipt', 150, 20);
       
-      // Order Info
       doc.setFontSize(11);
       doc.setTextColor(0, 0, 0);
       doc.text(`Order ID: ${order._id}`, 14, 40);
       doc.text(`Date: ${order.createdAt ? new Date(order.createdAt).toLocaleDateString('en-IN') : 'N/A'}`, 14, 46);
       
-      // Customer Info
       doc.text('Bill To:', 14, 60);
       doc.setFontSize(10);
       const ship = order.shippingAddress || {};
@@ -115,7 +260,6 @@ const OrderDetailPage = () => {
         nextY += 6;
       }
 
-      // Table
       const tableColumn = ["Item", "Brand", "Qty", "Price", "Total"];
       const tableRows = [];
       const items = Array.isArray(order.orderItems) ? order.orderItems : [];
@@ -140,8 +284,6 @@ const OrderDetailPage = () => {
       });
 
       const finalY = (doc.lastAutoTable?.finalY || 140) + 10;
-      
-      // Totals
       doc.setFontSize(10);
       doc.text(`Subtotal: Rs. ${Number(order.itemsPrice || 0).toLocaleString('en-IN')}`, 130, finalY);
       doc.text(`GST (Included): Rs. ${Number(order.taxPrice || 0).toLocaleString('en-IN')}`, 130, finalY + 7);
@@ -154,8 +296,8 @@ const OrderDetailPage = () => {
       doc.save(`Invoice_${order._id}.pdf`);
       toast.success('Invoice downloaded successfully');
     } catch (err) {
-      console.error('Invoice generation failed:', err);
-      toast.error('Failed to generate invoice. Please try again.');
+      console.error('Invoice fallback error:', err);
+      toast.error('Failed to generate invoice.');
     }
   };
 
@@ -177,8 +319,13 @@ const OrderDetailPage = () => {
     );
   }
 
-  // Determine active step in timeline
+  const paymentInfo = order.paymentInfo || {};
+  const isPaid = paymentInfo.status === 'Completed' && order.orderStatus !== 'AwaitingPayment';
+  const isCancelled = order.orderStatus === 'Cancelled';
+  const paymentStatus = paymentInfo.status || 'Pending';
+
   const getStepStatus = (stepName) => {
+    if (!isPaid) return 'pending';
     const statusOrder = ['Placed', 'Processing', 'Shipped', 'Delivered'];
     
     if (order.orderStatus === 'Cancelled') {
@@ -203,7 +350,6 @@ const OrderDetailPage = () => {
   const ship = order.shippingAddress || {};
   const shipName = ship.name || order.user?.name || 'Customer';
   const items = Array.isArray(order.orderItems) ? order.orderItems : [];
-  const paymentInfo = order.paymentInfo || {};
   const maskedTxnId = maskPaymentId(paymentInfo.razorpayPaymentId);
 
   return (
@@ -220,10 +366,14 @@ const OrderDetailPage = () => {
             </Link>
 
             <button
-              onClick={generateInvoice}
-              className="btn-outline py-2 px-4 text-sm flex items-center gap-2 bg-white"
+              onClick={handleDownloadInvoice}
+              disabled={!isPaid || isDownloading}
+              title={!isPaid ? 'Invoice is available only after payment is completed.' : 'Download Invoice'}
+              className={`btn-outline py-2 px-4 text-sm flex items-center gap-2 bg-white ${
+                !isPaid ? 'opacity-40 cursor-not-allowed hover:bg-white hover:text-slate-700' : ''
+              }`}
             >
-              <FiDownload /> Download Invoice
+              <FiDownload /> {isDownloading ? 'Downloading...' : 'Download Invoice'}
             </button>
           </div>
           
@@ -240,7 +390,7 @@ const OrderDetailPage = () => {
                     <p className="text-sm font-mono text-slate-500">ID: {order._id}</p>
                   </div>
                   <div className="text-right mt-4 sm:mt-0">
-                    <p className="text-sm text-slate-500 mb-1">Placed on</p>
+                    <p className="text-sm text-slate-500 mb-1">Created on</p>
                     <p className="font-semibold text-slate-900">
                       {order.createdAt
                         ? new Date(order.createdAt).toLocaleDateString('en-IN', {
@@ -251,18 +401,34 @@ const OrderDetailPage = () => {
                   </div>
                 </div>
 
-                {/* Timeline */}
-                <div className="relative pt-4 pb-8 overflow-hidden">
-                  {order.orderStatus === 'Cancelled' ? (
-                    <div className="bg-red-50 text-red-600 p-4 rounded-lg font-semibold flex items-center justify-center gap-2">
+                {/* Timeline & Unpaid Banner */}
+                <div className="relative pt-2 pb-6 overflow-hidden">
+                  {isCancelled ? (
+                    <div className="bg-rose-50 text-rose-600 p-4 rounded-xl font-semibold flex items-center justify-center gap-2">
                       <FiInfo size={20} /> Order Cancelled
+                    </div>
+                  ) : !isPaid ? (
+                    <div className="bg-amber-50 border border-amber-200 text-amber-800 p-5 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4">
+                      <div className="flex items-start gap-3">
+                        <FiAlertTriangle className="text-amber-600 shrink-0 mt-0.5" size={22} />
+                        <div>
+                          <p className="font-bold text-sm">Payment Confirmation Required</p>
+                          <p className="text-xs text-amber-700 mt-0.5">
+                            This order is currently unconfirmed. Delivery tracking will activate automatically once payment is completed.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={handleRetryPayment}
+                        disabled={isRetrying}
+                        className="btn-primary py-2 px-5 text-sm font-bold shrink-0 shadow-md"
+                      >
+                        {isRetrying ? 'Opening Gateway...' : 'Retry Payment'}
+                      </button>
                     </div>
                   ) : (
                     <div className="flex justify-between relative px-2 sm:px-4">
-                      {/* Line behind steps */}
                       <div className="absolute top-5 left-0 w-full h-1 bg-slate-200 z-0"></div>
-                      
-                      {/* Active Line */}
                       <div 
                         className="absolute top-5 left-0 h-1 bg-green-500 z-0 transition-all duration-500"
                         style={{ 
@@ -353,19 +519,60 @@ const OrderDetailPage = () => {
                     <span className="font-medium text-slate-900">{order.shippingPrice === 0 ? 'Free' : formatPrice(order.shippingPrice || 0)}</span>
                   </div>
                   <div className="flex justify-between items-center pt-2">
-                    <span className="font-bold text-slate-900">Total Paid</span>
-                    <span className="text-xl font-bold text-brand-orange">{formatPrice(order.totalPrice || 0)}</span>
+                    <span className="font-bold text-slate-900">{isPaid ? 'Total Paid' : 'Amount Due'}</span>
+                    <span className={`text-xl font-bold ${isPaid ? 'text-brand-orange' : 'text-rose-600'}`}>
+                      {formatPrice(order.totalPrice || 0)}
+                    </span>
                   </div>
                 </div>
 
-                <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
-                  <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Payment Method</p>
-                  <p className="text-sm font-medium text-slate-900">Razorpay (Online)</p>
-                  <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
-                    <FiCheckCircle /> Payment {paymentInfo.status || 'Completed'}
-                  </p>
+                {/* Payment State Panel */}
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
+                  <p className="text-xs text-slate-500 uppercase font-semibold">Payment Details</p>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-medium text-slate-900">Method</span>
+                    <span className="text-sm text-slate-700 font-medium">Razorpay (Online)</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-medium text-slate-900">Status</span>
+                    {isPaid ? (
+                      <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded-full">
+                        <FiCheckCircle size={12} /> Paid
+                      </span>
+                    ) : paymentStatus === 'Cancelled' ? (
+                      <span className="inline-flex items-center gap-1 text-xs font-bold text-rose-700 bg-rose-100 px-2.5 py-0.5 rounded-full">
+                        <FiInfo size={12} /> Cancelled
+                      </span>
+                    ) : paymentStatus === 'Failed' ? (
+                      <span className="inline-flex items-center gap-1 text-xs font-bold text-rose-700 bg-rose-100 px-2.5 py-0.5 rounded-full">
+                        <FiAlertTriangle size={12} /> Failed
+                      </span>
+                    ) : paymentStatus === 'Expired' ? (
+                      <span className="inline-flex items-center gap-1 text-xs font-bold text-slate-700 bg-slate-200 px-2.5 py-0.5 rounded-full">
+                        Expired
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-700 bg-amber-100 px-2.5 py-0.5 rounded-full">
+                        Pending
+                      </span>
+                    )}
+                  </div>
+
                   {maskedTxnId && (
-                    <p className="text-xs text-slate-400 mt-1 font-mono break-all">Txn ID: {maskedTxnId}</p>
+                    <div className="flex justify-between items-center pt-1 border-t border-slate-200/60">
+                      <span className="text-xs text-slate-500">Txn ID</span>
+                      <span className="text-xs text-slate-700 font-mono">{maskedTxnId}</span>
+                    </div>
+                  )}
+
+                  {!isPaid && !isCancelled && (
+                    <button
+                      onClick={handleRetryPayment}
+                      disabled={isRetrying}
+                      className="w-full mt-3 btn-primary py-2 text-xs font-bold shadow-sm"
+                    >
+                      {isRetrying ? 'Opening Gateway...' : 'Retry Payment'}
+                    </button>
                   )}
                 </div>
               </Reveal>

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { FiEye, FiPackage, FiSearch, FiRefreshCw, FiAlertCircle } from 'react-icons/fi';
+import { FiEye, FiPackage, FiSearch, FiRefreshCw, FiAlertCircle, FiArrowRight } from 'react-icons/fi';
 import api from '../utils/api';
 import { useAuth } from '../context/AuthContext';
 import { formatPrice } from '../utils/formatPrice';
@@ -56,7 +56,6 @@ const MyOrdersPage = () => {
     setError(null);
     try {
       const { data } = await api.get('/orders/myorders');
-      // Normalize response shape: { orders: [...] } or direct array [...] or { results: [...] }
       const orderList = Array.isArray(data)
         ? data
         : Array.isArray(data?.orders)
@@ -120,7 +119,7 @@ const MyOrdersPage = () => {
             </div>
           ) : (
             <RevealStagger className="space-y-6">
-              {orders.map((order) => {
+              {orders.map((order, idx) => {
                 if (!order || typeof order !== 'object') return null;
 
                 const orderId = order._id || '';
@@ -128,14 +127,35 @@ const MyOrdersPage = () => {
                 const shipName = order.shippingAddress?.name || user?.name || 'Customer';
                 const items = Array.isArray(order.orderItems) ? order.orderItems : [];
                 const orderStatus = order.orderStatus || 'Placed';
+                const paymentInfo = order.paymentInfo || {};
+                const isPaid = paymentInfo.status === 'Completed' && orderStatus !== 'AwaitingPayment';
+
+                let displayBadgeText = orderStatus;
+                let displayBadgeColor = STATUS_COLORS[orderStatus] || 'bg-slate-100 text-slate-800';
+
+                if (!isPaid) {
+                  if (paymentInfo.status === 'Cancelled') {
+                    displayBadgeText = 'Payment Cancelled';
+                    displayBadgeColor = STATUS_COLORS['Payment Cancelled'];
+                  } else if (paymentInfo.status === 'Failed') {
+                    displayBadgeText = 'Payment Failed';
+                    displayBadgeColor = STATUS_COLORS['Payment Failed'];
+                  } else if (paymentInfo.status === 'Expired') {
+                    displayBadgeText = 'Payment Expired';
+                    displayBadgeColor = STATUS_COLORS['Payment Expired'];
+                  } else {
+                    displayBadgeText = 'Awaiting Payment';
+                    displayBadgeColor = STATUS_COLORS['Awaiting Payment'];
+                  }
+                }
 
                 return (
-                  <RevealItem key={orderId || Math.random()} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                  <RevealItem key={orderId || `order-${idx}`} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                     {/* Order Header */}
                     <div className="bg-slate-50 border-b border-slate-200 p-4 sm:p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                       <div className="flex flex-wrap gap-x-8 gap-y-2">
                         <div>
-                          <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Order Placed</p>
+                          <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Created</p>
                           <p className="text-sm font-medium text-slate-900">
                             {order.createdAt
                               ? new Date(order.createdAt).toLocaleDateString('en-IN', {
@@ -147,8 +167,12 @@ const MyOrdersPage = () => {
                           </p>
                         </div>
                         <div>
-                          <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Total Amount</p>
-                          <p className="text-sm font-medium text-slate-900">{formatPrice(order.totalPrice || 0)}</p>
+                          <p className="text-xs text-slate-500 uppercase font-semibold mb-1">
+                            {isPaid ? 'Total Amount' : 'Amount Due'}
+                          </p>
+                          <p className={`text-sm font-bold ${isPaid ? 'text-slate-900' : 'text-rose-600'}`}>
+                            {formatPrice(order.totalPrice || 0)}
+                          </p>
                         </div>
                         <div>
                           <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Ship To</p>
@@ -159,29 +183,43 @@ const MyOrdersPage = () => {
                       <div className="flex flex-col sm:items-end w-full sm:w-auto">
                         <p className="text-xs text-slate-500 uppercase font-semibold mb-1 sm:hidden">Order ID</p>
                         <p className="text-sm font-mono text-slate-600 mb-2">Order # {shortId}</p>
-                        <Link
-                          to={`/orders/${orderId}`}
-                          className="btn-outline py-1.5 px-4 text-sm flex items-center justify-center gap-2 w-full sm:w-auto"
-                        >
-                          <FiEye /> View Details
-                        </Link>
+                        <div className="flex items-center gap-2 w-full sm:w-auto">
+                          {!isPaid && orderStatus !== 'Cancelled' && (
+                            <Link
+                              to={`/orders/${orderId}`}
+                              className="btn-primary py-1.5 px-3 text-xs flex items-center justify-center gap-1 font-bold shadow-sm"
+                            >
+                              Retry Payment <FiArrowRight size={12} />
+                            </Link>
+                          )}
+                          <Link
+                            to={`/orders/${orderId}`}
+                            className="btn-outline py-1.5 px-4 text-sm flex items-center justify-center gap-2 w-full sm:w-auto bg-white"
+                          >
+                            <FiEye /> View Details
+                          </Link>
+                        </div>
                       </div>
                     </div>
 
                     {/* Order Content */}
                     <div className="p-4 sm:p-6 flex flex-col md:flex-row items-start gap-6">
                       <div className="flex-1 w-full">
-                        <div className="mb-4">
-                          <span className={`inline-flex px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${STATUS_COLORS[orderStatus] || 'bg-slate-100 text-slate-800'}`}>
-                            {orderStatus}
+                        <div className="mb-4 flex items-center flex-wrap gap-2">
+                          <span className={`inline-flex px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${displayBadgeColor}`}>
+                            {displayBadgeText}
                           </span>
-                          {orderStatus === 'Delivered' && order.deliveredAt ? (
-                            <span className="text-sm text-slate-500 ml-3">
+                          {isPaid && orderStatus === 'Delivered' && order.deliveredAt ? (
+                            <span className="text-sm text-slate-500 ml-2">
                               Delivered on {new Date(order.deliveredAt).toLocaleDateString('en-IN')}
                             </span>
-                          ) : orderStatus !== 'Cancelled' ? (
-                            <span className="text-sm text-slate-500 ml-3">
+                          ) : isPaid && orderStatus !== 'Cancelled' ? (
+                            <span className="text-sm text-slate-500 ml-2">
                               Expected {order.estimatedDelivery ? new Date(order.estimatedDelivery).toLocaleDateString('en-IN') : '5-7 business days'}
+                            </span>
+                          ) : !isPaid ? (
+                            <span className="text-sm text-amber-700 font-medium ml-2">
+                              Payment pending confirmation
                             </span>
                           ) : null}
                         </div>

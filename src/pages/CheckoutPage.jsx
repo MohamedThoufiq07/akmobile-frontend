@@ -137,6 +137,9 @@ const CheckoutPage = () => {
         orderId: internalOrderId
       });
 
+      const razorpayOrderId = rzpData.orderId || rzpData.razorpayOrderId;
+      const razorpayKey = rzpData.key || rzpData.keyId;
+
       // 4. Determine safe public HTTPS merchant logo URL (never localhost / HTTP / product image)
       let merchantLogoUrl;
       if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
@@ -158,13 +161,13 @@ const CheckoutPage = () => {
 
       // Configure Razorpay Standard Checkout options
       const options = {
-        key: rzpData.key,
+        key: razorpayKey,
         amount: rzpData.amount,
         currency: rzpData.currency,
         name: 'AK Mobiles',
         ...(merchantLogoUrl ? { image: merchantLogoUrl } : {}),
         description: rzpData.description || `Order #${internalOrderId}`,
-        order_id: rzpData.orderId,
+        order_id: razorpayOrderId,
         prefill: {
           name: shippingAddress.name,
           email: shippingAddress.email,
@@ -174,10 +177,18 @@ const CheckoutPage = () => {
           color: '#0F172A'
         },
         modal: {
-          ondismiss: function () {
+          ondismiss: async function () {
             setIsProcessing(false);
-            toast('Payment cancelled. You can complete your order anytime from Order Details.', { icon: 'ℹ️' });
-            navigate(`/orders/${internalOrderId}`);
+            try {
+              await api.post('/payments/razorpay/checkout-dismissed/', {
+                internalOrderId: internalOrderId,
+                razorpayOrderId: razorpayOrderId,
+                orderId: internalOrderId
+              });
+            } catch (err) {
+              console.warn('Failed to notify backend of checkout dismissal:', err);
+            }
+            toast('Payment cancelled. Your order was not placed.', { icon: 'ℹ️' });
           }
         },
         handler: async function (response) {

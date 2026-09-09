@@ -68,11 +68,21 @@ export const ORDER_STATUS = {
 };
 
 export const STATUS_COLORS = {
+  AwaitingPayment: 'bg-amber-100 text-amber-800',
+  'Awaiting Payment': 'bg-amber-100 text-amber-800',
+  'Payment Pending': 'bg-amber-100 text-amber-800',
+  'Payment Cancelled': 'bg-rose-100 text-rose-800',
+  'Payment Failed': 'bg-rose-100 text-rose-800',
+  'Payment Expired': 'bg-slate-100 text-slate-700',
   Placed: 'bg-blue-100 text-blue-800',
   Processing: 'bg-yellow-100 text-yellow-800',
+  Packed: 'bg-purple-100 text-purple-800',
   Shipped: 'bg-indigo-100 text-indigo-800',
+  OutForDelivery: 'bg-cyan-100 text-cyan-800',
+  'Out for Delivery': 'bg-cyan-100 text-cyan-800',
   Delivered: 'bg-green-100 text-green-800',
   Cancelled: 'bg-red-100 text-red-800',
+  Returned: 'bg-orange-100 text-orange-800',
 };
 
 export const SHIPPING_THRESHOLD = 999;
