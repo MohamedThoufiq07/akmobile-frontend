@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { FiArrowLeft, FiDownload, FiCheck, FiCheckCircle, FiPackage, FiTruck, FiMapPin, FiInfo } from 'react-icons/fi';
+import { FiArrowLeft, FiDownload, FiCheck, FiCheckCircle, FiPackage, FiTruck, FiMapPin, FiInfo, FiRefreshCw } from 'react-icons/fi';
 import api from '../utils/api';
 import { formatPrice } from '../utils/formatPrice';
 import { jsPDF } from 'jspdf';
@@ -9,6 +9,13 @@ import 'jspdf-autotable';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import { Reveal } from '../components/ui/animations';
 import { getValidImageUrl } from '../utils/imageHelper';
+import toast from 'react-hot-toast';
+
+const maskPaymentId = (pid) => {
+  if (!pid || typeof pid !== 'string') return '';
+  if (pid.length <= 10) return pid;
+  return `${pid.slice(0, 4)}...${pid.slice(-4)}`;
+};
 
 const OrderDetailPage = () => {
   const { id } = useParams();
@@ -16,91 +23,140 @@ const OrderDetailPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    const fetchOrder = async () => {
-      try {
-        const { data } = await api.get(`/orders/${id}`);
-        setOrder(data.order);
-      } catch (err) {
+  const fetchOrder = async (isBackground = false) => {
+    if (!isBackground) setLoading(true);
+    try {
+      const { data } = await api.get(`/orders/${id}`);
+      setOrder(data.order);
+      setError(null);
+    } catch (err) {
+      if (!isBackground) {
         setError(err.response?.data?.message || 'Error fetching order details');
-      } finally {
-        setLoading(false);
       }
-    };
+    } finally {
+      if (!isBackground) setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     fetchOrder();
     window.scrollTo(0, 0);
+
+    // Refetch when tab/page becomes visible again
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchOrder(true);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Poll backend every 30s while order is non-terminal (not Delivered / Cancelled)
+    const intervalId = setInterval(() => {
+      setOrder((currentOrder) => {
+        if (currentOrder && (currentOrder.orderStatus === 'Delivered' || currentOrder.orderStatus === 'Cancelled')) {
+          clearInterval(intervalId);
+          return currentOrder;
+        }
+        fetchOrder(true);
+        return currentOrder;
+      });
+    }, 30000);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      clearInterval(intervalId);
+    };
   }, [id]);
 
   const generateInvoice = () => {
     if (!order) return;
 
-    const doc = new jsPDF();
-    
-    // Header
-    doc.setFontSize(22);
-    doc.setTextColor(24, 58, 95); // Brand Blue
-    doc.text('AK MOBILES', 14, 20);
-    
-    doc.setFontSize(10);
-    doc.setTextColor(100, 100, 100);
-    doc.text('Main Road, Near Bus Stand, Virudhachalam, TN - 606001', 14, 27);
-    doc.text('Tax Invoice', 170, 20);
-    
-    // Order Info
-    doc.setFontSize(11);
-    doc.setTextColor(0, 0, 0);
-    doc.text(`Order ID: ${order._id}`, 14, 40);
-    doc.text(`Date: ${new Date(order.createdAt).toLocaleDateString('en-IN')}`, 14, 46);
-    
-    // Customer Info
-    doc.text('Bill To:', 14, 60);
-    doc.setFontSize(10);
-    doc.text(order.shippingAddress.name, 14, 66);
-    doc.text(order.shippingAddress.addressLine1, 14, 72);
-    if (order.shippingAddress.addressLine2) {
-      doc.text(order.shippingAddress.addressLine2, 14, 78);
-      doc.text(`${order.shippingAddress.city}, ${order.shippingAddress.state} - ${order.shippingAddress.postalCode}`, 14, 84);
-    } else {
-      doc.text(`${order.shippingAddress.city}, ${order.shippingAddress.state} - ${order.shippingAddress.postalCode}`, 14, 78);
+    try {
+      const doc = new jsPDF();
+      
+      // Header
+      doc.setFontSize(22);
+      doc.setTextColor(24, 58, 95); // Brand Blue
+      doc.text('AK MOBILES', 14, 20);
+      
+      doc.setFontSize(10);
+      doc.setTextColor(100, 100, 100);
+      doc.text('Main Road, Near Bus Stand, Virudhachalam, TN - 606001', 14, 27);
+      doc.text('Payment Receipt', 150, 20);
+      
+      // Order Info
+      doc.setFontSize(11);
+      doc.setTextColor(0, 0, 0);
+      doc.text(`Order ID: ${order._id}`, 14, 40);
+      doc.text(`Date: ${order.createdAt ? new Date(order.createdAt).toLocaleDateString('en-IN') : 'N/A'}`, 14, 46);
+      
+      // Customer Info
+      doc.text('Bill To:', 14, 60);
+      doc.setFontSize(10);
+      const ship = order.shippingAddress || {};
+      const shipName = ship.name || order.user?.name || 'Customer';
+      doc.text(shipName, 14, 66);
+      
+      let nextY = 72;
+      if (ship.addressLine1) {
+        doc.text(ship.addressLine1, 14, nextY);
+        nextY += 6;
+      }
+      if (ship.addressLine2) {
+        doc.text(ship.addressLine2, 14, nextY);
+        nextY += 6;
+      }
+      if (ship.city || ship.state || ship.postalCode) {
+        doc.text(`${ship.city || ''}, ${ship.state || ''} - ${ship.postalCode || ''}`, 14, nextY);
+        nextY += 6;
+      }
+      if (ship.phone) {
+        doc.text(`Phone: ${ship.phone}`, 14, nextY);
+        nextY += 6;
+      }
+
+      // Table
+      const tableColumn = ["Item", "Brand", "Qty", "Price", "Total"];
+      const tableRows = [];
+      const items = Array.isArray(order.orderItems) ? order.orderItems : [];
+
+      items.forEach(item => {
+        const itemData = [
+          item.name || 'Product',
+          item.product?.brand || item.brand || 'N/A',
+          (item.quantity || 1).toString(),
+          `Rs. ${Number(item.price || 0).toLocaleString('en-IN')}`,
+          `Rs. ${(Number(item.price || 0) * Number(item.quantity || 1)).toLocaleString('en-IN')}`
+        ];
+        tableRows.push(itemData);
+      });
+
+      doc.autoTable({
+        startY: Math.max(nextY + 4, 95),
+        head: [tableColumn],
+        body: tableRows,
+        theme: 'grid',
+        headStyles: { fillColor: [24, 58, 95] }
+      });
+
+      const finalY = (doc.lastAutoTable?.finalY || 140) + 10;
+      
+      // Totals
+      doc.setFontSize(10);
+      doc.text(`Subtotal: Rs. ${Number(order.itemsPrice || 0).toLocaleString('en-IN')}`, 130, finalY);
+      doc.text(`GST (Included): Rs. ${Number(order.taxPrice || 0).toLocaleString('en-IN')}`, 130, finalY + 7);
+      doc.text(`Shipping: Rs. ${Number(order.shippingPrice || 0).toLocaleString('en-IN')}`, 130, finalY + 14);
+      
+      doc.setFontSize(12);
+      doc.setFont("helvetica", "bold");
+      doc.text(`Total Paid: Rs. ${Number(order.totalPrice || 0).toLocaleString('en-IN')}`, 130, finalY + 24);
+      
+      doc.save(`Invoice_${order._id}.pdf`);
+      toast.success('Invoice downloaded successfully');
+    } catch (err) {
+      console.error('Invoice generation failed:', err);
+      toast.error('Failed to generate invoice. Please try again.');
     }
-    doc.text(`Phone: ${order.shippingAddress.phone}`, 14, order.shippingAddress.addressLine2 ? 90 : 84);
-
-    // Table
-    const tableColumn = ["Item", "Brand", "Qty", "Price", "Total"];
-    const tableRows = [];
-
-    order.orderItems.forEach(item => {
-      const itemData = [
-        item.name,
-        item.product?.brand || 'N/A',
-        item.quantity.toString(),
-        `Rs. ${item.price.toLocaleString('en-IN')}`,
-        `Rs. ${(item.price * item.quantity).toLocaleString('en-IN')}`
-      ];
-      tableRows.push(itemData);
-    });
-
-    doc.autoTable({
-      startY: 100,
-      head: [tableColumn],
-      body: tableRows,
-      theme: 'grid',
-      headStyles: { fillColor: [24, 58, 95] }
-    });
-
-    const finalY = doc.lastAutoTable.finalY + 10;
-    
-    // Totals
-    doc.text(`Subtotal: Rs. ${order.itemsPrice.toLocaleString('en-IN')}`, 130, finalY);
-    doc.text(`GST (Included): Rs. ${order.taxPrice.toLocaleString('en-IN')}`, 130, finalY + 7);
-    doc.text(`Shipping: Rs. ${order.shippingPrice.toLocaleString('en-IN')}`, 130, finalY + 14);
-    
-    doc.setFontSize(12);
-    doc.setFont("helvetica", "bold");
-    doc.text(`Total: Rs. ${order.totalPrice.toLocaleString('en-IN')}`, 130, finalY + 24);
-    
-    doc.save(`Invoice_${order._id}.pdf`);
   };
 
   if (loading) return <LoadingSpinner fullScreen />;
@@ -109,8 +165,14 @@ const OrderDetailPage = () => {
     return (
       <div className="container mx-auto px-4 py-20 text-center min-h-[60vh] flex flex-col justify-center items-center">
         <div className="text-5xl mb-4 text-red-500"><FiInfo /></div>
-        <h2 className="text-2xl font-bold mb-4">{error || 'Order not found'}</h2>
-        <Link to="/my-orders" className="btn-primary">Back to Orders</Link>
+        <h2 className="text-2xl font-bold mb-2">{error || 'Order not found'}</h2>
+        <p className="text-slate-500 mb-6 max-w-sm">We could not load the details for this order. It may belong to another account or have been removed.</p>
+        <div className="flex gap-4">
+          <button onClick={() => fetchOrder(false)} className="btn-outline flex items-center gap-2">
+            <FiRefreshCw /> Try Again
+          </button>
+          <Link to="/my-orders" className="btn-primary">Back to Orders</Link>
+        </div>
       </div>
     );
   }
@@ -137,6 +199,12 @@ const OrderDetailPage = () => {
     { name: 'Shipped', icon: FiTruck, label: 'Shipped' },
     { name: 'Delivered', icon: FiMapPin, label: 'Delivered' }
   ];
+
+  const ship = order.shippingAddress || {};
+  const shipName = ship.name || order.user?.name || 'Customer';
+  const items = Array.isArray(order.orderItems) ? order.orderItems : [];
+  const paymentInfo = order.paymentInfo || {};
+  const maskedTxnId = maskPaymentId(paymentInfo.razorpayPaymentId);
 
   return (
     <>
@@ -174,9 +242,11 @@ const OrderDetailPage = () => {
                   <div className="text-right mt-4 sm:mt-0">
                     <p className="text-sm text-slate-500 mb-1">Placed on</p>
                     <p className="font-semibold text-slate-900">
-                      {new Date(order.createdAt).toLocaleDateString('en-IN', {
-                        year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute:'2-digit'
-                      })}
+                      {order.createdAt
+                        ? new Date(order.createdAt).toLocaleDateString('en-IN', {
+                            year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute:'2-digit'
+                          })
+                        : 'Recently'}
                     </p>
                   </div>
                 </div>
@@ -202,7 +272,7 @@ const OrderDetailPage = () => {
                         }}
                       ></div>
 
-                      {steps.map((step, index) => {
+                      {steps.map((step) => {
                         const status = getStepStatus(step.name);
                         const Icon = step.icon;
                         
@@ -232,23 +302,31 @@ const OrderDetailPage = () => {
                 <h3 className="text-lg font-bold text-slate-900 mb-6">Items in Order</h3>
                 
                 <div className="space-y-6">
-                  {order.orderItems.map((item, index) => (
-                    <div key={index} className="flex gap-4 items-center pb-6 border-b border-slate-100 last:border-0 last:pb-0">
-                      <div className="w-20 h-20 bg-slate-50 rounded-xl p-2 border border-slate-100 shrink-0">
-                        <img src={getValidImageUrl(item.image, item.name)} alt={item.name} className="w-full h-full object-contain" />
+                  {items.map((item, index) => {
+                    const productId = item.product?._id || item.product || '';
+                    const itemName = item.name || 'Product';
+                    const itemBrand = item.product?.brand || item.brand || '';
+                    const itemPrice = Number(item.price || 0);
+                    const itemQty = Number(item.quantity || 1);
+
+                    return (
+                      <div key={index} className="flex gap-4 items-center pb-6 border-b border-slate-100 last:border-0 last:pb-0">
+                        <div className="w-20 h-20 bg-slate-50 rounded-xl p-2 border border-slate-100 shrink-0">
+                          <img src={getValidImageUrl(item.image, itemName)} alt={itemName} className="w-full h-full object-contain" />
+                        </div>
+                        <div className="flex-1">
+                          <Link to={`/products/${productId}`} className="font-bold text-slate-900 hover:text-brand-orange text-base line-clamp-2 mb-1">
+                            {itemName}
+                          </Link>
+                          {itemBrand && <p className="text-xs text-slate-500 uppercase">{itemBrand}</p>}
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="font-bold text-slate-900">{formatPrice(itemPrice)}</p>
+                          <p className="text-sm text-slate-500">Qty: {itemQty}</p>
+                        </div>
                       </div>
-                      <div className="flex-1">
-                        <Link to={`/products/${item.product._id || item.product}`} className="font-bold text-slate-900 hover:text-brand-orange text-base line-clamp-2 mb-1">
-                          {item.name}
-                        </Link>
-                        {item.product?.brand && <p className="text-xs text-slate-500 uppercase">{item.product.brand}</p>}
-                      </div>
-                      <div className="text-right shrink-0">
-                        <p className="font-bold text-slate-900">{formatPrice(item.price)}</p>
-                        <p className="text-sm text-slate-500">Qty: {item.quantity}</p>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </Reveal>
 
@@ -264,19 +342,19 @@ const OrderDetailPage = () => {
                 <div className="space-y-3 text-sm mb-6">
                   <div className="flex justify-between text-slate-600">
                     <span>Subtotal</span>
-                    <span className="font-medium text-slate-900">{formatPrice(order.itemsPrice)}</span>
+                    <span className="font-medium text-slate-900">{formatPrice(order.itemsPrice || 0)}</span>
                   </div>
                   <div className="flex justify-between text-slate-600">
                     <span>GST (Included)</span>
-                    <span className="font-medium text-slate-900">{formatPrice(order.taxPrice)}</span>
+                    <span className="font-medium text-slate-900">{formatPrice(order.taxPrice || 0)}</span>
                   </div>
                   <div className="flex justify-between text-slate-600 border-b border-slate-100 pb-4">
                     <span>Delivery</span>
-                    <span className="font-medium text-slate-900">{order.shippingPrice === 0 ? 'Free' : formatPrice(order.shippingPrice)}</span>
+                    <span className="font-medium text-slate-900">{order.shippingPrice === 0 ? 'Free' : formatPrice(order.shippingPrice || 0)}</span>
                   </div>
                   <div className="flex justify-between items-center pt-2">
                     <span className="font-bold text-slate-900">Total Paid</span>
-                    <span className="text-xl font-bold text-brand-orange">{formatPrice(order.totalPrice)}</span>
+                    <span className="text-xl font-bold text-brand-orange">{formatPrice(order.totalPrice || 0)}</span>
                   </div>
                 </div>
 
@@ -284,10 +362,10 @@ const OrderDetailPage = () => {
                   <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Payment Method</p>
                   <p className="text-sm font-medium text-slate-900">Razorpay (Online)</p>
                   <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
-                    <FiCheckCircle /> Payment {order.paymentInfo?.status || 'Completed'}
+                    <FiCheckCircle /> Payment {paymentInfo.status || 'Completed'}
                   </p>
-                  {order.paymentInfo?.razorpayPaymentId && (
-                    <p className="text-xs text-slate-400 mt-1 font-mono break-all">Txn ID: {order.paymentInfo.razorpayPaymentId}</p>
+                  {maskedTxnId && (
+                    <p className="text-xs text-slate-400 mt-1 font-mono break-all">Txn ID: {maskedTxnId}</p>
                   )}
                 </div>
               </Reveal>
@@ -296,14 +374,14 @@ const OrderDetailPage = () => {
               <Reveal delay={0.15} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
                 <h3 className="text-lg font-bold text-slate-900 mb-4 pb-4 border-b border-slate-100">Delivery Information</h3>
                 
-                <p className="font-bold text-slate-900 mb-1">{order.shippingAddress.name}</p>
-                <p className="text-sm text-slate-600 mb-4">{order.shippingAddress.phone}</p>
+                <p className="font-bold text-slate-900 mb-1">{shipName}</p>
+                {ship.phone && <p className="text-sm text-slate-600 mb-4">{ship.phone}</p>}
                 
                 <div className="text-sm text-slate-600 leading-relaxed">
-                  <p>{order.shippingAddress.addressLine1}</p>
-                  {order.shippingAddress.addressLine2 && <p>{order.shippingAddress.addressLine2}</p>}
-                  <p>{order.shippingAddress.city}, {order.shippingAddress.state}</p>
-                  <p className="font-medium mt-1">PIN: {order.shippingAddress.postalCode}</p>
+                  {ship.addressLine1 && <p>{ship.addressLine1}</p>}
+                  {ship.addressLine2 && <p>{ship.addressLine2}</p>}
+                  {(ship.city || ship.state) && <p>{ship.city || ''}{ship.city && ship.state ? ', ' : ''}{ship.state || ''}</p>}
+                  {ship.postalCode && <p className="font-medium mt-1">PIN: {ship.postalCode}</p>}
                 </div>
               </Reveal>
 
