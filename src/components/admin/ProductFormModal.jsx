@@ -12,7 +12,7 @@ import {
   BRANDS,
   CATEGORIES,
 } from '../../utils/constants';
-import { getPlaceholderSvg } from '../../utils/imageHelper';
+import { getPlaceholderSvg, getCanonicalMimeAndExt, normalizeProductImageFile } from '../../utils/imageHelper';
 
 const SPEC_FIELDS = [
   ['processor', 'Processor'], ['ram', 'RAM'], ['storage', 'Storage'],
@@ -102,6 +102,7 @@ const ProductFormModal = ({ product, isOpen = true, onClose, onSaved }) => {
   const sessionTokenRef = useRef(null);
   const abortControllersRef = useRef(new Map());
   const previewUrlsRef = useRef(new Set());
+  const rawFilesMapRef = useRef(new Map());
 
   const set = (key, value) => {
     setIsDirty(true);
@@ -132,6 +133,7 @@ const ProductFormModal = ({ product, isOpen = true, onClose, onSaved }) => {
       }
     });
     abortControllersRef.current.clear();
+    rawFilesMapRef.current.clear();
     if (!silent) {
       toast.error('Active upload operations cancelled.');
     }
@@ -305,8 +307,10 @@ const ProductFormModal = ({ product, isOpen = true, onClose, onSaved }) => {
   };
 
   // Seven-state upload pipeline
-  const uploadFile = async (imgId, file) => {
+  const uploadFile = async (imgId, originalFile) => {
+    const file = normalizeProductImageFile(originalFile || rawFilesMapRef.current.get(imgId));
     if (!file) return;
+    rawFilesMapRef.current.set(imgId, file);
 
     if (abortControllersRef.current.has(imgId)) {
       const existing = abortControllersRef.current.get(imgId);
@@ -318,7 +322,7 @@ const ProductFormModal = ({ product, isOpen = true, onClose, onSaved }) => {
     try {
       // 1. Validating
       logTransition(imgId, 'selected', 'validating');
-      updateImageItem(imgId, { status: 'validating', progress: 10, errorMessage: '' });
+      updateImageItem(imgId, { status: 'validating', progress: 10, errorMessage: '', file });
 
       await validateClientFile(file, controller.signal);
 
@@ -331,12 +335,14 @@ const ProductFormModal = ({ product, isOpen = true, onClose, onSaved }) => {
         throw new Error('Unable to establish upload session. Please retry.');
       }
 
+      const { mime: canonicalMime, ext: canonicalExt } = getCanonicalMimeAndExt(file);
+
       const authRes = await adminApi.post(
         `/products/upload-session/${sessionToken}/authorize-upload`,
         {
           filename: file.name,
           fileSize: file.size,
-          contentType: file.type || 'application/octet-stream',
+          contentType: canonicalMime,
         },
         { signal: controller.signal, timeout: 15000 }
       );
@@ -347,6 +353,15 @@ const ProductFormModal = ({ product, isOpen = true, onClose, onSaved }) => {
       logTransition(imgId, 'authorizing', 'uploading');
       updateImageItem(imgId, { status: 'uploading', progress: 30 });
 
+      if (import.meta.env.DEV) {
+        console.debug({
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          isFile: file instanceof File,
+        });
+      }
+
       let uploadedBlobUrl = '';
       let uploadedBlobPathname = pathname;
 
@@ -355,7 +370,7 @@ const ProductFormModal = ({ product, isOpen = true, onClose, onSaved }) => {
         await adminApi.put(localUploadUrl, file, {
           signal: controller.signal,
           timeout: 120000,
-          headers: { 'Content-Type': 'application/octet-stream' },
+          headers: { 'Content-Type': file.type || canonicalMime },
           onUploadProgress: (progressEvent) => {
             if (progressEvent.total) {
               const percent = Math.min(85, Math.round((progressEvent.loaded * 55) / progressEvent.total) + 30);
@@ -365,8 +380,8 @@ const ProductFormModal = ({ product, isOpen = true, onClose, onSaved }) => {
         });
         uploadedBlobUrl = localUploadUrl;
       } else {
-        // Official @vercel/blob direct browser upload
-        const targetPathname = pathname || `products/staging/${sessionToken}/${stagedItemId}.upload`;
+        // Official @vercel/blob direct browser upload with normalized File
+        const targetPathname = pathname || `products/staging/${sessionToken}/${stagedItemId}${canonicalExt}`;
         const blobResult = await upload(targetPathname, file, {
           access: 'public',
           handleUploadUrl: handleUploadUrl || '/api/product-image-upload',
@@ -480,8 +495,10 @@ const ProductFormModal = ({ product, isOpen = true, onClose, onSaved }) => {
     const selectedFiles = filesArr.slice(0, remainingSlots);
     if (fileInputRef.current) fileInputRef.current.value = '';
 
-    const newEntries = selectedFiles.map((file, idx) => {
+    const newEntries = selectedFiles.map((rawFile, idx) => {
+      const file = normalizeProductImageFile(rawFile);
       const tempId = `new-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      rawFilesMapRef.current.set(tempId, file);
       const previewUrl = URL.createObjectURL(file);
       previewUrlsRef.current.add(previewUrl);
 
@@ -546,6 +563,7 @@ const ProductFormModal = ({ product, isOpen = true, onClose, onSaved }) => {
     setForm((f) => {
       const target = f.images[index];
       if (target) {
+        rawFilesMapRef.current.delete(target.id);
         if (abortControllersRef.current.has(target.id)) {
           const c = abortControllersRef.current.get(target.id);
           if (!c.signal.aborted) c.abort();
@@ -603,8 +621,9 @@ const ProductFormModal = ({ product, isOpen = true, onClose, onSaved }) => {
   };
 
   const retryUpload = (img) => {
-    if (img.file) {
-      uploadFile(img.id, img.file);
+    const file = rawFilesMapRef.current.get(img.id) || img.file;
+    if (file) {
+      uploadFile(img.id, file);
     }
   };
 

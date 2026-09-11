@@ -111,3 +111,47 @@ export const getPrimaryProductImageUrl = (product) => {
 
   return getPlaceholderSvg(product.name || product.brand || 'Product');
 };
+
+export const getCanonicalMimeAndExt = (file) => {
+  const filename = (file?.name || '').toLowerCase().trim();
+  const ext = filename.includes('.') ? filename.slice(filename.lastIndexOf('.')) : '';
+  const rawType = (file?.type || '').toLowerCase().trim();
+
+  if (rawType === 'image/jpeg' || rawType === 'image/jpg' || ext === '.jpg' || ext === '.jpeg') {
+    return { mime: 'image/jpeg', ext: '.jpg' };
+  }
+  if (rawType === 'image/png' || ext === '.png') {
+    return { mime: 'image/png', ext: '.png' };
+  }
+  if (rawType === 'image/webp' || ext === '.webp') {
+    return { mime: 'image/webp', ext: '.webp' };
+  }
+  if (ext === '.jpe') {
+    return { mime: 'image/jpeg', ext: '.jpg' };
+  }
+
+  if (rawType.startsWith('image/')) {
+    if (rawType.includes('png')) return { mime: 'image/png', ext: '.png' };
+    if (rawType.includes('webp')) return { mime: 'image/webp', ext: '.webp' };
+    return { mime: 'image/jpeg', ext: '.jpg' };
+  }
+
+  return { mime: 'image/jpeg', ext: '.jpg' };
+};
+
+export const normalizeProductImageFile = (file) => {
+  if (!file) return null;
+  const { mime, ext } = getCanonicalMimeAndExt(file);
+  const name = file.name || `image${ext}`;
+  const baseName = name.includes('.') ? name.slice(0, name.lastIndexOf('.')) : name;
+  const normalizedName = `${baseName}${ext}`;
+
+  if (file.type === mime && file.name === normalizedName) {
+    return file;
+  }
+
+  return new File([file], normalizedName, {
+    type: mime,
+    lastModified: file.lastModified || Date.now(),
+  });
+};

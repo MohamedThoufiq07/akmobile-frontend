@@ -6,7 +6,7 @@ import ProductFormModal from '../../components/admin/ProductFormModal';
 import ProductDetailPage from '../ProductDetailPage';
 import { CartProvider } from '../../context/CartContext';
 import { useCart } from '../../context/useCart';
-import { getPrimaryProductImageUrl } from '../../utils/imageHelper';
+import { getPrimaryProductImageUrl, getCanonicalMimeAndExt, normalizeProductImageFile } from '../../utils/imageHelper';
 import SearchResultCard from '../../components/ui/SearchResultCard';
 import ProductCard from '../../components/ui/ProductCard';
 
@@ -610,6 +610,39 @@ describe('Product Image & Delivery Charge Suite', () => {
       expect(screen.getByTestId('cart-subtotal').textContent).toBe('2000');
       expect(screen.getByTestId('cart-shipping').textContent).toBe('49');
       expect(screen.getByTestId('cart-total').textContent).toBe('2049');
+    });
+  });
+
+  describe('5. Canonical MIME and File Normalization', () => {
+    it('normalizes JPEG, PNG, and WebP files with canonical MIME types', () => {
+      const jpegFile = new File(['fake-jpeg'], 'photo.jpeg', { type: 'image/jpeg' });
+      expect(getCanonicalMimeAndExt(jpegFile)).toEqual({ mime: 'image/jpeg', ext: '.jpg' });
+
+      const pngFile = new File(['fake-png'], 'photo.png', { type: 'image/png' });
+      expect(getCanonicalMimeAndExt(pngFile)).toEqual({ mime: 'image/png', ext: '.png' });
+
+      const webpFile = new File(['fake-webp'], 'photo.webp', { type: 'image/webp' });
+      expect(getCanonicalMimeAndExt(webpFile)).toEqual({ mime: 'image/webp', ext: '.webp' });
+    });
+
+    it('infers canonical MIME from file extension when browser File.type is empty or application/octet-stream', () => {
+      const emptyTypeFile = new File(['fake-jpeg'], 'camera.JPG', { type: '' });
+      expect(getCanonicalMimeAndExt(emptyTypeFile)).toEqual({ mime: 'image/jpeg', ext: '.jpg' });
+
+      const octetStreamFile = new File(['fake-png'], 'screenshot.PNG', { type: 'application/octet-stream' });
+      expect(getCanonicalMimeAndExt(octetStreamFile)).toEqual({ mime: 'image/png', ext: '.png' });
+
+      const webpEmpty = new File(['fake-webp'], 'banner.webp', { type: '' });
+      expect(getCanonicalMimeAndExt(webpEmpty)).toEqual({ mime: 'image/webp', ext: '.webp' });
+    });
+
+    it('normalizeProductImageFile produces a valid File with canonical MIME and extension', () => {
+      const rawFile = new File(['fake-raw'], 'my-pic.jpeg', { type: 'application/octet-stream' });
+      const normalized = normalizeProductImageFile(rawFile);
+
+      expect(normalized instanceof File).toBe(true);
+      expect(normalized.type).toBe('image/jpeg');
+      expect(normalized.name).toBe('my-pic.jpg');
     });
   });
 });
