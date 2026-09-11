@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useCart } from '../context/useCart';
+import { useNotification } from '../context/useNotification';
 import { Reveal, RevealStagger, RevealItem } from '../components/ui/animations';
 import { getValidImageUrl } from '../utils/imageHelper';
 
@@ -78,6 +79,7 @@ const StepBar = () => {
 // ─── Main Cart ────────────────────────────────────────────────────────────────
 const CartInner = () => {
   const { cartItems, cartSubtotal, cartShipping, updateQuantity, removeFromCart } = useCart();
+  const notify = useNotification();
   const [promo, setPromo] = React.useState('');
   const [promoApplied, setPromoApplied] = React.useState(false);
 
@@ -93,8 +95,12 @@ const CartInner = () => {
   const grandTotal = Math.max(0, subtotal - discount + shipping);
 
   const handlePromo = () => {
-    if (promo.trim().toUpperCase() === 'AK500') setPromoApplied(true);
-    else alert('Invalid promo code. Try AK500');
+    if (promo.trim().toUpperCase() === 'AK500') {
+      setPromoApplied(true);
+      notify.success('Promo code AK500 applied: 5% discount!');
+    } else {
+      notify.error('Invalid promo code. Try AK500');
+    }
   };
 
   // ── Empty State ──

@@ -5,6 +5,8 @@ import {
 } from 'react-icons/fi';
 import toast from 'react-hot-toast';
 import adminApi from '../../utils/adminApi';
+import { useConfirm } from '../../context/useConfirm';
+import { useNotification } from '../../context/useNotification';
 import { Reveal, RevealStagger, RevealItem } from '../../components/ui/animations';
 import { AdminBannersSkeleton, PageSkeleton } from '../../components/ui/skeleton';
 import bannerSmartphones from '../../assets/banners/banner-smartphones.png';
@@ -35,6 +37,8 @@ const generateBannerId = () => {
 };
 
 const AdminBanners = () => {
+  const { confirm } = useConfirm();
+  const notify = useNotification();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [banners, setBanners] = useState([]);
@@ -165,12 +169,18 @@ const AdminBanners = () => {
     setIsModalOpen(false);
   };
 
-  const handleDelete = (id) => {
+  const handleDelete = async (id) => {
     if (banners.length <= 1) {
-      toast.error('You must keep at least 1 hero banner.');
+      notify.error('You must keep at least 1 hero banner.');
       return;
     }
-    if (window.confirm('Are you sure you want to delete this hero banner?')) {
+    const confirmed = await confirm({
+      title: 'Delete Hero Banner?',
+      message: 'Are you sure you want to delete this hero banner slide?',
+      confirmText: 'Delete Banner',
+      variant: 'danger',
+    });
+    if (confirmed) {
       const newList = banners.filter((b) => (b.id || b._id) !== id);
       saveBannersToBackend(newList);
     }
@@ -197,8 +207,14 @@ const AdminBanners = () => {
     saveBannersToBackend(newList);
   };
 
-  const handleResetToDefaults = () => {
-    if (window.confirm('Reset hero banners to default pre-designed slides?')) {
+  const handleResetToDefaults = async () => {
+    const confirmed = await confirm({
+      title: 'Reset Banners to Default?',
+      message: 'This will reset hero banners to default pre-designed slides.',
+      confirmText: 'Reset Banners',
+      variant: 'warning',
+    });
+    if (confirmed) {
       saveBannersToBackend(DEFAULT_BANNER_PRESETS);
     }
   };

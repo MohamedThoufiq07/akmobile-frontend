@@ -7,6 +7,7 @@ import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
 import { WishlistProvider } from './context/WishlistContext';
+import { GlobalNotificationProvider } from './context/GlobalNotificationProvider';
 
 // Layouts (eager — shell shown on every route)
 import Layout from './components/layout/Layout';
@@ -68,80 +69,82 @@ function App() {
       <AuthProvider>
         <CartProvider>
           <WishlistProvider>
-            <Toaster 
-              position="top-center"
-              toastOptions={{
-                duration: 3000,
-                style: {
-                  background: '#1e293b',
-                  color: '#fff',
-                  border: '1px solid rgba(255,255,255,0.1)',
-                  backdropFilter: 'blur(10px)',
-                },
-                success: { iconTheme: { primary: '#10B981', secondary: '#fff' } },
-                error: { iconTheme: { primary: '#EF4444', secondary: '#fff' } },
-              }}
-            />
-            <Router>
-              <Suspense fallback={<LoadingSpinner />}>
-              <Routes>
-                {/* Public Routes with Standard Layout */}
-                <Route path="/" element={<Layout />}>
-                  <Route index element={<HomePage />} />
-                  <Route path="products" element={<ProductsPage />} />
-                  <Route path="products/:id" element={<ProductDetailPage />} />
-                  <Route path="search" element={<SearchResultsPage />} />
-                  <Route path="cart" element={<Cart />} />
-                  <Route path="wishlist" element={<WishlistPage />} />
-                  <Route path="about" element={<AboutPage />} />
-                  <Route path="contact" element={<ContactPage />} />
-                  
-                  {/* Policy and Customer Support Routes */}
-                  <Route path="privacy-policy" element={<PrivacyPolicyPage />} />
-                  <Route path="terms-and-conditions" element={<TermsConditionsPage />} />
-                  <Route path="refund-policy" element={<RefundCancellationPolicyPage />} />
-                  <Route path="shipping-policy" element={<ShippingDeliveryPolicyPage />} />
-                  <Route path="faq" element={<FAQPage />} />
-                  <Route path="track-order" element={<TrackOrderPage />} />
-                  
-                  {/* Profile Route inside layout */}
-                  <Route path="profile" element={<ProfilePage />} />
-                  
-                  {/* Order Routes (Protected internally by components) */}
-                  <Route path="checkout" element={<CheckoutPage />} />
-                  <Route path="order-success/:id" element={<OrderSuccessPage />} />
-                  <Route path="my-orders" element={<MyOrdersPage />} />
-                  <Route path="orders/:id" element={<OrderDetailPage />} />
-                  
-                  <Route path="*" element={<NotFoundPage />} />
-                </Route>
+            <GlobalNotificationProvider>
+              <Toaster 
+                position="top-center"
+                toastOptions={{
+                  duration: 3000,
+                  style: {
+                    background: '#1e293b',
+                    color: '#fff',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    backdropFilter: 'blur(10px)',
+                  },
+                  success: { iconTheme: { primary: '#10B981', secondary: '#fff' } },
+                  error: { iconTheme: { primary: '#EF4444', secondary: '#fff' } },
+                }}
+              />
+              <Router>
+                <Suspense fallback={<LoadingSpinner />}>
+                <Routes>
+                  {/* Public Routes with Standard Layout */}
+                  <Route path="/" element={<Layout />}>
+                    <Route index element={<HomePage />} />
+                    <Route path="products" element={<ProductsPage />} />
+                    <Route path="products/:id" element={<ProductDetailPage />} />
+                    <Route path="search" element={<SearchResultsPage />} />
+                    <Route path="cart" element={<Cart />} />
+                    <Route path="wishlist" element={<WishlistPage />} />
+                    <Route path="about" element={<AboutPage />} />
+                    <Route path="contact" element={<ContactPage />} />
+                    
+                    {/* Policy and Customer Support Routes */}
+                    <Route path="privacy-policy" element={<PrivacyPolicyPage />} />
+                    <Route path="terms-and-conditions" element={<TermsConditionsPage />} />
+                    <Route path="refund-policy" element={<RefundCancellationPolicyPage />} />
+                    <Route path="shipping-policy" element={<ShippingDeliveryPolicyPage />} />
+                    <Route path="faq" element={<FAQPage />} />
+                    <Route path="track-order" element={<TrackOrderPage />} />
+                    
+                    {/* Profile Route inside layout */}
+                    <Route path="profile" element={<ProfilePage />} />
+                    
+                    {/* Order Routes (Protected internally by components) */}
+                    <Route path="checkout" element={<CheckoutPage />} />
+                    <Route path="order-success/:id" element={<OrderSuccessPage />} />
+                    <Route path="my-orders" element={<MyOrdersPage />} />
+                    <Route path="orders/:id" element={<OrderDetailPage />} />
+                    
+                    <Route path="*" element={<NotFoundPage />} />
+                  </Route>
 
-                {/* Standalone Auth Routes (NO Layout header/footer) */}
-                <Route path="/login" element={<LoginPage />} />
-                <Route path="/register" element={<RegisterPage />} />
-                <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                  {/* Standalone Auth Routes (NO Layout header/footer) */}
+                  <Route path="/login" element={<LoginPage />} />
+                  <Route path="/register" element={<RegisterPage />} />
+                  <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
-                {/* Admin area — wrapped in its OWN auth provider (separate
-                    session from the storefront). /admin/login is public within
-                    it; everything else requires an admin session. */}
-                <Route path="/admin" element={<AdminAuthProvider />}>
-                  <Route path="login" element={<AdminLogin />} />
-                  <Route path="forgot-password" element={<AdminForgotPassword />} />
-                  <Route element={<AdminRoute />}>
-                    <Route element={<AdminLayout />}>
-                      <Route index element={<AdminDashboard />} />
-                      <Route path="products" element={<AdminProducts />} />
-                      <Route path="orders" element={<AdminOrders />} />
-                      <Route path="banners" element={<AdminBanners />} />
-                      <Route path="flash-sale" element={<AdminFlashSale />} />
-                      <Route path="users" element={<AdminUsers />} />
-                      <Route path="messages" element={<AdminMessages />} />
+                  {/* Admin area — wrapped in its OWN auth provider (separate
+                      session from the storefront). /admin/login is public within
+                      it; everything else requires an admin session. */}
+                  <Route path="/admin" element={<AdminAuthProvider />}>
+                    <Route path="login" element={<AdminLogin />} />
+                    <Route path="forgot-password" element={<AdminForgotPassword />} />
+                    <Route element={<AdminRoute />}>
+                      <Route element={<AdminLayout />}>
+                        <Route index element={<AdminDashboard />} />
+                        <Route path="products" element={<AdminProducts />} />
+                        <Route path="orders" element={<AdminOrders />} />
+                        <Route path="banners" element={<AdminBanners />} />
+                        <Route path="flash-sale" element={<AdminFlashSale />} />
+                        <Route path="users" element={<AdminUsers />} />
+                        <Route path="messages" element={<AdminMessages />} />
+                      </Route>
                     </Route>
                   </Route>
-                </Route>
-              </Routes>
-              </Suspense>
-            </Router>
+                </Routes>
+                </Suspense>
+              </Router>
+            </GlobalNotificationProvider>
           </WishlistProvider>
         </CartProvider>
       </AuthProvider>

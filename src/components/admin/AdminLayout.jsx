@@ -6,6 +6,8 @@ import {
   FiTrendingUp, FiPackage, FiShoppingBag, FiUsers, FiMail, FiZap, FiImage, FiLogOut, FiExternalLink, FiMenu, FiX,
 } from 'react-icons/fi';
 import { useAdminAuth } from '../../context/useAdminAuth';
+import { useConfirm } from '../../context/useConfirm';
+import { useNotification } from '../../context/useNotification';
 
 const NAV = [
   { to: '/admin', label: 'Dashboard', icon: FiTrendingUp, end: true },
@@ -29,12 +31,29 @@ const TITLES = {
 
 const AdminLayout = () => {
   const { admin: user, logout } = useAdminAuth();
+  const { confirm } = useConfirm();
+  const notify = useNotification();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const title = TITLES[pathname] || 'Admin';
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const closeMobileNav = () => setMobileNavOpen(false);
+
+  const handleLogoutClick = async () => {
+    const confirmed = await confirm({
+      title: 'Log out of Admin?',
+      message: 'You will need to sign in again to access the admin dashboard.',
+      confirmText: 'Log Out',
+      cancelText: 'Cancel',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+
+    logout();
+    notify.success('Logged out successfully');
+    navigate('/admin/login', { replace: true });
+  };
 
   // Shared sidebar inner content (identical on desktop + mobile drawer).
   const sidebarContent = (
@@ -82,8 +101,8 @@ const AdminLayout = () => {
           </div>
         </div>
         <button
-          onClick={() => { logout(); navigate('/admin/login'); }}
-          className="w-full flex items-center justify-center gap-2 text-sm font-medium text-red-600 hover:text-white hover:bg-red-500 border border-red-200 hover:border-red-500 py-2 rounded-lg transition-colors"
+          onClick={handleLogoutClick}
+          className="w-full flex items-center justify-center gap-2 text-sm font-medium text-red-600 hover:text-white hover:bg-red-500 border border-red-200 hover:border-red-500 py-2 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-red-400"
         >
           <FiLogOut /> Logout
         </button>
