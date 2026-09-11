@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import adminApi from '../../utils/adminApi';
-import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { Reveal } from '../../components/ui/animations';
+import { TableSkeleton, PageSkeleton } from '../../components/ui/skeleton';
 
 const AdminUsers = () => {
   const [users, setUsers] = useState([]);
@@ -11,23 +11,35 @@ const AdminUsers = () => {
   const [pages, setPages] = useState(1);
   const [total, setTotal] = useState(0);
 
-  const fetchUsers = useCallback(async () => {
-    setLoading(true);
-    try {
-      const { data } = await adminApi.get(`/users?page=${page}&limit=20`);
-      setUsers(data.users || []);
-      setPages(data.pages || 1);
-      setTotal(data.total || 0);
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to load users');
-    } finally {
-      setLoading(false);
-    }
+  useEffect(() => {
+    let ignore = false;
+    adminApi.get(`/users?page=${page}&limit=20`)
+      .then(({ data }) => {
+        if (!ignore) {
+          setUsers(data.users || []);
+          setPages(data.pages || 1);
+          setTotal(data.total || 0);
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (!ignore) {
+          toast.error(err.response?.data?.message || 'Failed to load users');
+          setLoading(false);
+        }
+      });
+    return () => {
+      ignore = true;
+    };
   }, [page]);
 
-  useEffect(() => { fetchUsers(); }, [fetchUsers]);
-
-  if (loading) return <div className="py-20"><LoadingSpinner /></div>;
+  if (loading) {
+    return (
+      <PageSkeleton label="Loading users table">
+        <TableSkeleton rows={8} cols={5} />
+      </PageSkeleton>
+    );
+  }
 
   return (
     <>

@@ -1,49 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { FiEye, FiPackage, FiSearch, FiRefreshCw, FiAlertCircle, FiArrowRight } from 'react-icons/fi';
 import api from '../utils/api';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 import { formatPrice } from '../utils/formatPrice';
 import { STATUS_COLORS } from '../utils/constants';
+import { formatISTDateTime, formatISTDateOnly } from '../utils/dateFormatter';
 import { Reveal, RevealStagger, RevealItem } from '../components/ui/animations';
 import { getValidImageUrl } from '../utils/imageHelper';
+import { OrderCardSkeleton, PageSkeleton } from '../components/ui/skeleton';
 
-const OrderSkeleton = () => (
-  <div className="space-y-6">
-    {[1, 2].map((i) => (
-      <div key={i} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden animate-pulse">
-        <div className="bg-slate-50 border-b border-slate-200 p-4 sm:p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div className="flex flex-wrap gap-x-8 gap-y-2">
-            <div>
-              <div className="h-3 w-16 bg-slate-200 rounded mb-2" />
-              <div className="h-4 w-28 bg-slate-200 rounded" />
-            </div>
-            <div>
-              <div className="h-3 w-20 bg-slate-200 rounded mb-2" />
-              <div className="h-4 w-16 bg-slate-200 rounded" />
-            </div>
-            <div>
-              <div className="h-3 w-14 bg-slate-200 rounded mb-2" />
-              <div className="h-4 w-20 bg-slate-200 rounded" />
-            </div>
-          </div>
-          <div className="h-8 w-28 bg-slate-200 rounded-lg" />
-        </div>
-        <div className="p-4 sm:p-6">
-          <div className="h-5 w-20 bg-slate-200 rounded-full mb-4" />
-          <div className="flex gap-4 items-center">
-            <div className="w-16 h-16 bg-slate-200 rounded-lg shrink-0" />
-            <div className="space-y-2 flex-1">
-              <div className="h-4 w-48 bg-slate-200 rounded" />
-              <div className="h-3 w-24 bg-slate-200 rounded" />
-            </div>
-          </div>
-        </div>
-      </div>
-    ))}
-  </div>
-);
 
 const MyOrdersPage = () => {
   const { user } = useAuth();
@@ -51,7 +18,7 @@ const MyOrdersPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const fetchOrders = async () => {
+  const fetchOrders = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -70,10 +37,34 @@ const MyOrdersPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    fetchOrders();
+    let ignore = false;
+    api.get('/orders/myorders')
+      .then(({ data }) => {
+        if (!ignore) {
+          const orderList = Array.isArray(data)
+            ? data
+            : Array.isArray(data?.orders)
+            ? data.orders
+            : Array.isArray(data?.results)
+            ? data.results
+            : [];
+          setOrders(orderList);
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (!ignore) {
+          console.error('Error fetching orders:', err);
+          setError(err.response?.data?.message || 'Unable to load orders. Please check your connection and try again.');
+          setLoading(false);
+        }
+      });
+    return () => {
+      ignore = true;
+    };
   }, []);
 
   return (
@@ -89,7 +80,13 @@ const MyOrdersPage = () => {
           </Reveal>
 
           {loading ? (
-            <OrderSkeleton />
+            <PageSkeleton loading={true} statusText="Loading your orders...">
+              <div className="space-y-6" aria-hidden="true">
+                {[1, 2, 3].map((i) => (
+                  <OrderCardSkeleton key={i} />
+                ))}
+              </div>
+            </PageSkeleton>
           ) : error ? (
             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-8 sm:p-12 text-center">
               <div className="w-20 h-20 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -157,13 +154,7 @@ const MyOrdersPage = () => {
                         <div>
                           <p className="text-xs text-slate-500 uppercase font-semibold mb-1">Created</p>
                           <p className="text-sm font-medium text-slate-900">
-                            {order.createdAt
-                              ? new Date(order.createdAt).toLocaleDateString('en-IN', {
-                                  year: 'numeric',
-                                  month: 'long',
-                                  day: 'numeric'
-                                })
-                              : 'Recently'}
+                            {formatISTDateTime(order.createdAt, 'Recently')}
                           </p>
                         </div>
                         <div>
@@ -211,11 +202,11 @@ const MyOrdersPage = () => {
                           </span>
                           {isPaid && orderStatus === 'Delivered' && order.deliveredAt ? (
                             <span className="text-sm text-slate-500 ml-2">
-                              Delivered on {new Date(order.deliveredAt).toLocaleDateString('en-IN')}
+                              Delivered on {formatISTDateTime(order.deliveredAt)}
                             </span>
                           ) : isPaid && orderStatus !== 'Cancelled' ? (
                             <span className="text-sm text-slate-500 ml-2">
-                              Expected {order.estimatedDelivery ? new Date(order.estimatedDelivery).toLocaleDateString('en-IN') : '5-7 business days'}
+                              Expected {order.estimatedDelivery ? formatISTDateOnly(order.estimatedDelivery) : '5-7 business days'}
                             </span>
                           ) : !isPaid ? (
                             <span className="text-sm text-amber-700 font-medium ml-2">

@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { FiTrash2, FiMinus, FiPlus } from 'react-icons/fi';
-import { useCart } from '../../context/CartContext';
+import { useCart } from '../../context/useCart';
 import { formatPrice } from '../../utils/formatPrice';
 import { getValidImageUrl } from '../../utils/imageHelper';
 

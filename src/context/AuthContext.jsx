@@ -1,10 +1,7 @@
-import { createContext, useState, useEffect, useContext } from 'react';
+import { useState, useEffect } from 'react';
 import api from '../utils/api';
 import toast from 'react-hot-toast';
-
-const AuthContext = createContext();
-
-export const useAuth = () => useContext(AuthContext);
+import { AuthContext } from './useAuth';
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -13,26 +10,36 @@ export const AuthProvider = ({ children }) => {
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
+    let ignore = false;
     const checkAuth = async () => {
       const token = localStorage.getItem('token');
       if (token) {
         try {
           const { data } = await api.get('/auth/profile');
-          // Admin accounts are NOT storefront users. If an admin token ended up
-          // in the storefront session (e.g. a stale token), drop it.
-          if (data.user.role === 'admin') {
-            localStorage.removeItem('token');
-          } else {
-            setUser(data.user);
-            setIsAuthenticated(true);
+          if (!ignore) {
+            // Admin accounts are NOT storefront users. If an admin token ended up
+            // in the storefront session (e.g. a stale token), drop it.
+            if (data.user.role === 'admin') {
+              localStorage.removeItem('token');
+            } else {
+              setUser(data.user);
+              setIsAuthenticated(true);
+            }
           }
-        } catch (error) {
-          localStorage.removeItem('token');
+        } catch {
+          if (!ignore) {
+            localStorage.removeItem('token');
+          }
         }
       }
-      setLoading(false);
+      if (!ignore) {
+        setLoading(false);
+      }
     };
     checkAuth();
+    return () => {
+      ignore = true;
+    };
   }, []);
 
   const login = async (email, password) => {
@@ -110,3 +117,5 @@ export const AuthProvider = ({ children }) => {
     </AuthContext.Provider>
   );
 };
+
+export default AuthProvider;

@@ -3,9 +3,10 @@ import { FiPlus, FiEdit2, FiTrash2, FiSearch, FiStar } from 'react-icons/fi';
 import toast from 'react-hot-toast';
 import adminApi from '../../utils/adminApi';
 import { formatPrice } from '../../utils/formatPrice';
-import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import ProductFormModal from '../../components/admin/ProductFormModal';
 import { Reveal } from '../../components/ui/animations';
+import { getPrimaryProductImageUrl } from '../../utils/imageHelper';
+import { TableSkeleton, PageSkeleton } from '../../components/ui/skeleton';
 
 const AdminProducts = () => {
   const [products, setProducts] = useState([]);
@@ -34,7 +35,31 @@ const AdminProducts = () => {
     }
   }, [page, search]);
 
-  useEffect(() => { fetchProducts(); }, [fetchProducts]);
+  useEffect(() => {
+    let ignore = false;
+    const params = new URLSearchParams({ page: String(page), limit: '12' });
+    if (search) params.set('search', search);
+
+    adminApi.get(`/products?${params.toString()}`)
+      .then(({ data }) => {
+        if (!ignore) {
+          setProducts(data.products || []);
+          setPages(data.pages || 1);
+          setTotal(data.total || 0);
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (!ignore) {
+          toast.error(err.response?.data?.message || 'Failed to load products');
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [page, search]);
 
   const handleSearch = (e) => {
     e.preventDefault();
@@ -83,7 +108,9 @@ const AdminProducts = () => {
       </div>
 
       {loading ? (
-        <div className="py-20"><LoadingSpinner /></div>
+        <PageSkeleton label="Loading products table">
+          <TableSkeleton rows={8} cols={6} />
+        </PageSkeleton>
       ) : products.length === 0 ? (
         <div className="bg-white rounded-xl border border-slate-100 p-12 text-center text-slate-500">
           No products found{search ? ` for "${search}"` : ''}.
@@ -108,11 +135,11 @@ const AdminProducts = () => {
                     <td className="p-4">
                       <div className="flex items-center gap-3">
                         <div className="w-12 h-12 bg-slate-50 rounded-lg border border-slate-100 p-1 shrink-0">
-                          <img src={p.images?.[0]?.url} alt={p.name} className="w-full h-full object-contain" onError={(e) => { e.target.style.visibility = 'hidden'; }} />
+                          <img src={getPrimaryProductImageUrl(p)} alt={p.name} className="w-full h-full object-contain" onError={(e) => { e.target.style.visibility = 'hidden'; }} />
                         </div>
                         <div className="min-w-0">
                           <p className="font-semibold text-slate-900 text-sm truncate max-w-[220px]">{p.name}</p>
-                          <p className="text-xs text-slate-400">{p.category}</p>
+                          <p className="text-xs text-slate-400">{p.category} {p.deliveryCharge && `• Delivery ₹${p.deliveryCharge}`}</p>
                         </div>
                       </div>
                     </td>

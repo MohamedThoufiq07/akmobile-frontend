@@ -1,11 +1,12 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { FiEye, FiX, FiCheckCircle, FiInfo } from 'react-icons/fi';
 import toast from 'react-hot-toast';
 import adminApi from '../../utils/adminApi';
 import { formatPrice } from '../../utils/formatPrice';
 import { STATUS_COLORS } from '../../utils/constants';
-import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import { formatISTDateTime } from '../../utils/dateFormatter';
 import { Reveal } from '../../components/ui/animations';
+import { TableSkeleton, PageSkeleton } from '../../components/ui/skeleton';
 
 const STATUSES = ['AwaitingPayment', 'Placed', 'Processing', 'Packed', 'Shipped', 'OutForDelivery', 'Delivered', 'Cancelled'];
 
@@ -19,7 +20,7 @@ const OrderDetailModal = ({ order, onClose }) => {
         <div className="flex items-center justify-between p-5 border-b border-slate-100 shrink-0">
           <div>
             <h2 className="text-lg font-bold text-slate-900">Order #{order._id.slice(-8)}</h2>
-            <p className="text-xs text-slate-500">{new Date(order.createdAt).toLocaleString()}</p>
+            <p className="text-xs text-slate-500">{formatISTDateTime(order.createdAt)}</p>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full text-slate-500"><FiX /></button>
         </div>
@@ -101,7 +102,7 @@ const OrderDetailModal = ({ order, onClose }) => {
                 {order.statusHistory.map((h, i) => (
                   <div key={i} className="flex items-center gap-3 text-sm">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${STATUS_COLORS[h.status] || 'bg-slate-100 text-slate-800'}`}>{h.status}</span>
-                    <span className="text-slate-500">{new Date(h.date).toLocaleString()}</span>
+                    <span className="text-slate-500">{formatISTDateTime(h.date)}</span>
                     {h.description && <span className="text-slate-400 text-xs">— {h.description}</span>}
                   </div>
                 ))}
@@ -123,23 +124,31 @@ const AdminOrders = () => {
   const [statusFilter, setStatusFilter] = useState('');
   const [viewing, setViewing] = useState(null);
 
-  const fetchOrders = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({ page: String(page), limit: '15' });
-      if (statusFilter) params.set('status', statusFilter);
-      const { data } = await adminApi.get(`/orders?${params.toString()}`);
-      setOrders(data.orders || []);
-      setPages(data.pages || 1);
-      setTotal(data.total || 0);
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to load orders');
-    } finally {
-      setLoading(false);
-    }
-  }, [page, statusFilter]);
+  useEffect(() => {
+    let ignore = false;
+    const params = new URLSearchParams({ page: String(page), limit: '15' });
+    if (statusFilter) params.set('status', statusFilter);
 
-  useEffect(() => { fetchOrders(); }, [fetchOrders]);
+    adminApi.get(`/orders?${params.toString()}`)
+      .then(({ data }) => {
+        if (!ignore) {
+          setOrders(data.orders || []);
+          setPages(data.pages || 1);
+          setTotal(data.total || 0);
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (!ignore) {
+          toast.error(err.response?.data?.message || 'Failed to load orders');
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [page, statusFilter]);
 
   return (
     <>
@@ -157,7 +166,9 @@ const AdminOrders = () => {
       </div>
 
       {loading ? (
-        <div className="py-20"><LoadingSpinner /></div>
+        <PageSkeleton label="Loading orders table">
+          <TableSkeleton rows={8} cols={7} />
+        </PageSkeleton>
       ) : orders.length === 0 ? (
         <div className="bg-white rounded-xl border border-slate-100 p-12 text-center text-slate-500">No orders found.</div>
       ) : (
@@ -187,7 +198,7 @@ const AdminOrders = () => {
                         <p className="font-medium text-slate-900">{order.user?.name || order.shippingAddress?.name || 'Guest'}</p>
                         <p className="text-xs text-slate-400">{order.user?.email || order.shippingAddress?.email}</p>
                       </td>
-                      <td className="p-4 text-sm text-slate-500 whitespace-nowrap">{new Date(order.createdAt).toLocaleDateString()}</td>
+                      <td className="p-4 text-sm text-slate-500 whitespace-nowrap">{formatISTDateTime(order.createdAt)}</td>
                       <td className="p-4 text-sm font-bold text-slate-900 whitespace-nowrap">{formatPrice(order.totalPrice)}</td>
                       <td className="p-4 whitespace-nowrap">
                         <span className={`inline-block text-xs font-bold rounded-full px-2.5 py-1 ${

@@ -77,3 +77,37 @@ export const getValidImageUrl = (url, fallbackText = 'Product') => {
     return fallback;
   }
 };
+
+export const getPrimaryProductImageUrl = (product) => {
+  if (!product) return getPlaceholderSvg('Product');
+
+  // 1. Primary image object from normalized ProductImage serializer
+  if (product.primaryImage && typeof product.primaryImage === 'object' && product.primaryImage.url) {
+    return getValidImageUrl(product.primaryImage.url, product.name || product.brand || 'Product');
+  }
+
+  // 2. First valid ordered product.images item
+  if (Array.isArray(product.images) && product.images.length > 0) {
+    const primaryCandidate = product.images.find((img) => img && (img.isPrimary || img.is_primary));
+    const target = primaryCandidate || product.images[0];
+    let rawUrl = '';
+    if (typeof target === 'string') {
+      rawUrl = target;
+    } else if (target && typeof target === 'object' && typeof target.url === 'string') {
+      rawUrl = target.url;
+    }
+    if (rawUrl) {
+      return getValidImageUrl(rawUrl, product.name || product.brand || 'Product');
+    }
+  }
+
+  // 3. Legacy image strings
+  if (typeof product.image === 'string' && product.image) {
+    return getValidImageUrl(product.image, product.name || product.brand || 'Product');
+  }
+  if (typeof product.imageUrl === 'string' && product.imageUrl) {
+    return getValidImageUrl(product.imageUrl, product.name || product.brand || 'Product');
+  }
+
+  return getPlaceholderSvg(product.name || product.brand || 'Product');
+};

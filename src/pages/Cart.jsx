@@ -1,8 +1,7 @@
 import React from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { useCart } from '../context/CartContext';
+import { Link } from 'react-router-dom';
+import { useCart } from '../context/useCart';
 import { Reveal, RevealStagger, RevealItem } from '../components/ui/animations';
-import { SHIPPING_THRESHOLD, SHIPPING_CHARGE } from '../utils/constants';
 import { getValidImageUrl } from '../utils/imageHelper';
 
 // ─── Error Boundary ───────────────────────────────────────────────────────────
@@ -76,18 +75,9 @@ const StepBar = () => {
   );
 };
 
-// ─── Trust Badges ─────────────────────────────────────────────────────────────
-const TrustBadge = ({ icon, label }) => (
-  <div style={styles.trustItem}>
-    <span style={{ fontSize: 18, marginBottom: 4 }}>{icon}</span>
-    <span style={styles.trustText}>{label}</span>
-  </div>
-);
-
 // ─── Main Cart ────────────────────────────────────────────────────────────────
 const CartInner = () => {
-  const { cartItems, updateQuantity, removeFromCart } = useCart();
-  const navigate = useNavigate();
+  const { cartItems, cartSubtotal, cartShipping, updateQuantity, removeFromCart } = useCart();
   const [promo, setPromo] = React.useState('');
   const [promoApplied, setPromoApplied] = React.useState(false);
 
@@ -96,10 +86,10 @@ const CartInner = () => {
   const removeItem = (id) => removeFromCart(id);
   const updateQty  = (id, qty) => { if (qty >= 1) updateQuantity(id, qty); };
 
-  const subtotal   = safeCart.reduce((s, item) => s + (Number(item.price) || 0) * (Number(item.quantity || item.qty) || 1), 0);
+  const subtotal   = cartSubtotal || safeCart.reduce((s, item) => s + (Number(item.price) || 0) * (Number(item.quantity || item.qty) || 1), 0);
   const discount   = promoApplied ? Math.round(subtotal * 0.05) : 0;
   const gst        = Math.round((subtotal - discount) * 0.18);
-  const shipping   = (safeCart.length === 0 || subtotal >= SHIPPING_THRESHOLD) ? 0 : SHIPPING_CHARGE;
+  const shipping   = cartShipping !== undefined ? cartShipping : 0;
   const grandTotal = Math.max(0, subtotal - discount + shipping);
 
   const handlePromo = () => {
@@ -143,6 +133,7 @@ const CartInner = () => {
               const id  = item.product || item.id;
               const qty = Number(item.quantity || item.qty) || 1;
               const itemTotal = (Number(item.price) || 0) * qty;
+              const itemDelivery = item.deliveryCharge !== undefined && item.deliveryCharge !== null ? Number(item.deliveryCharge) : 49;
 
               return (
                 <RevealItem key={id} style={styles.itemCard} className="flex-wrap sm:flex-nowrap">
@@ -162,7 +153,18 @@ const CartInner = () => {
 
                   {/* Details */}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <span style={styles.brandPill}>{item.brand || 'Smartphone'}</span>
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <span style={styles.brandPill}>{item.brand || 'Smartphone'}</span>
+                      {itemDelivery === 0 ? (
+                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-full">
+                          Free Delivery
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                          Delivery ₹{itemDelivery % 1 === 0 ? itemDelivery : itemDelivery.toFixed(2)}
+                        </span>
+                      )}
+                    </div>
                     <h3 style={styles.itemName}>{item.name}</h3>
                     {item.specs && <p style={styles.itemSpec}>{item.specs}</p>}
 
@@ -206,7 +208,9 @@ const CartInner = () => {
             <Reveal style={styles.deliveryStrip}>
               <span style={{ fontSize: 20 }}>🚚</span>
               <div style={{ flex: 1 }}>
-                <div style={styles.deliveryTitle}>Free delivery to Virudhachalam</div>
+                <div style={styles.deliveryTitle}>
+                  {shipping === 0 ? 'Free delivery to Virudhachalam' : 'Fast & secure delivery to Virudhachalam'}
+                </div>
                 <div style={styles.deliverySub}>Estimated 2–4 business days · Genuine products guaranteed</div>
               </div>
               <span style={styles.deliveryCheck}>✓</span>
@@ -275,8 +279,6 @@ const CartInner = () => {
             <Link to="/products" style={styles.continueLink}>
               ← Continue Shopping
             </Link>
-
-
           </Reveal>
         </div>
       </div>
@@ -314,19 +316,11 @@ const styles = {
   pageTitle:  { fontSize:22, fontWeight:700, color:'#0F172A' },
   countBadge: { background:'#534AB7', color:'#fff', fontSize:11, fontWeight:600, padding:'3px 10px', borderRadius:20 },
 
-  // Grid
-  grid: {
-    display:'grid',
-    gridTemplateColumns:'1fr 320px',
-    gap:20,
-    '@media(max-width:768px)': { gridTemplateColumns:'1fr' },
-  },
-
   // Item card
   itemCard:   { background:'#fff', borderRadius:16, padding:18, marginBottom:12, display:'flex', gap:14, alignItems:'flex-start', boxShadow:'0 1px 4px rgba(83,74,183,0.08)', border:'1px solid #EEEDFE' },
   imgBox:     { width:80, height:100, background:'#F8F7FF', borderRadius:12, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 },
   itemImg:    { width:70, height:90, objectFit:'contain' },
-  brandPill:  { display:'inline-block', background:'#EEEDFE', color:'#534AB7', fontSize:10, fontWeight:600, padding:'2px 10px', borderRadius:20, marginBottom:6 },
+  brandPill:  { display:'inline-block', background:'#EEEDFE', color:'#534AB7', fontSize:10, fontWeight:600, padding:'2px 10px', borderRadius:20 },
   itemName:   { fontSize:14, fontWeight:700, color:'#0F172A', marginBottom:4, lineHeight:1.4 },
   itemSpec:   { fontSize:11, color:'#94A3B8', marginBottom:8 },
   priceRow:   { display:'flex', alignItems:'center', gap:6, flexWrap:'wrap', marginBottom:12 },
@@ -373,15 +367,6 @@ const styles = {
   // Checkout
   checkoutBtn:   { display:'block', background:'#534AB7', color:'#fff', padding:15, borderRadius:12, textDecoration:'none', fontWeight:700, fontSize:15, textAlign:'center', marginBottom:10, letterSpacing:0.3 },
   continueLink:  { display:'block', textAlign:'center', color:'#534AB7', fontSize:13, fontWeight:500, textDecoration:'none', marginBottom:18 },
-
-  // Trust
-  trustRow:     { display:'flex', gap:8, marginBottom:14 },
-  trustItem:    { flex:1, background:'#F8F7FF', borderRadius:10, padding:'10px 6px', display:'flex', flexDirection:'column', alignItems:'center', gap:4 },
-  trustText:    { fontSize:9, color:'#64748B', textAlign:'center', lineHeight:1.3 },
-
-  // Payment
-  paymentRow:   { display:'flex', gap:6, justifyContent:'center', flexWrap:'wrap' },
-  paymentPill:  { background:'#F1F0FB', color:'#534AB7', fontSize:10, fontWeight:600, padding:'4px 10px', borderRadius:6, border:'1px solid #EEEDFE' },
 };
 
 // ─── Export ───────────────────────────────────────────────────────────────────

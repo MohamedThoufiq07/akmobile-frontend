@@ -1,41 +1,38 @@
-import { createContext, useState, useEffect, useContext } from 'react';
-import { useAuth } from './AuthContext';
+import { useState, useMemo, useCallback } from 'react';
+import { useAuth } from './useAuth';
 import api from '../utils/api';
 import toast from 'react-hot-toast';
-
-const WishlistContext = createContext();
-
-export const useWishlist = () => useContext(WishlistContext);
+import { WishlistContext } from './useWishlist';
 
 export const WishlistProvider = ({ children }) => {
-  const [wishlist, setWishlist] = useState([]);
   const { isAuthenticated, user, setUser } = useAuth();
 
-  useEffect(() => {
-    if (isAuthenticated && user && user.wishlist) {
-      setWishlist(user.wishlist);
-    } else if (!isAuthenticated) {
-      // Local wishlist for non-logged in users
+  const [localWishlist, setLocalWishlist] = useState(() => {
+    try {
       const stored = localStorage.getItem('localWishlist');
       if (stored) {
-        try {
-          setWishlist(JSON.parse(stored));
-        } catch (e) {
-          console.error(e);
-        }
-      } else {
-        setWishlist([]);
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed;
       }
+    } catch (e) {
+      console.error('WishlistContext: Failed to parse local wishlist', e);
     }
-  }, [isAuthenticated, user]);
+    return [];
+  });
 
-  const toggleWishlist = async (productId) => {
-    const isWished = wishlist.includes(productId) || (wishlist.some && wishlist.some(item => item._id === productId || item === productId));
+  const wishlist = useMemo(() => {
+    if (isAuthenticated) {
+      return Array.isArray(user?.wishlist) ? user.wishlist : [];
+    }
+    return localWishlist;
+  }, [isAuthenticated, user, localWishlist]);
+
+  const toggleWishlist = useCallback(async (productId) => {
+    const isWished = wishlist.some(item => (typeof item === 'object' && item !== null ? item._id === productId : item === productId));
     
     if (isAuthenticated) {
       try {
         const { data } = await api.put(`/auth/wishlist/${productId}`);
-        setWishlist(data.wishlist);
         if (setUser && user) {
           setUser({ ...user, wishlist: data.wishlist });
         }
@@ -44,28 +41,32 @@ export const WishlistProvider = ({ children }) => {
         } else {
           toast.success('Added to wishlist');
         }
-      } catch (error) {
+      } catch {
         toast.error('Failed to update wishlist');
       }
     } else {
       // Local wishlist logic
       let updated;
       if (isWished) {
-        updated = wishlist.filter(id => id !== productId && (id._id ? id._id !== productId : true));
+        updated = localWishlist.filter(item => (typeof item === 'object' && item !== null ? item._id !== productId : item !== productId));
         toast.success('Removed from wishlist');
       } else {
-        updated = [...wishlist, productId];
+        updated = [...localWishlist, productId];
         toast.success('Added to wishlist');
       }
-      setWishlist(updated);
-      localStorage.setItem('localWishlist', JSON.stringify(updated));
+      setLocalWishlist(updated);
+      try {
+        localStorage.setItem('localWishlist', JSON.stringify(updated));
+      } catch (e) {
+        console.error('WishlistContext: Failed to save local wishlist', e);
+      }
     }
-  };
+  }, [wishlist, isAuthenticated, user, setUser, localWishlist]);
 
-  const isInWishlist = (productId) => {
-    if (!wishlist) return false;
-    return wishlist.some(item => item === productId || item._id === productId);
-  };
+  const isInWishlist = useCallback((productId) => {
+    if (!wishlist || !Array.isArray(wishlist)) return false;
+    return wishlist.some(item => (typeof item === 'object' && item !== null ? item._id === productId : item === productId));
+  }, [wishlist]);
 
   return (
     <WishlistContext.Provider value={{ wishlist, toggleWishlist, isInWishlist }}>
@@ -73,3 +74,5 @@ export const WishlistProvider = ({ children }) => {
     </WishlistContext.Provider>
   );
 };
+
+export default WishlistProvider;

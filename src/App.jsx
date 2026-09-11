@@ -54,7 +54,8 @@ const AdminLogin = lazy(() => import('./pages/admin/AdminLogin'));
 const AdminForgotPassword = lazy(() => import('./pages/admin/AdminForgotPassword'));
 
 // Admin auth is a SEPARATE session from the storefront (its own token/context).
-import { AdminAuthProvider, useAdminAuth } from './context/AdminAuthContext';
+import { AdminAuthProvider } from './context/AdminAuthContext';
+import { useAdminAuth } from './context/useAdminAuth';
 const AdminRoute = () => {
   const { isAdmin, loading } = useAdminAuth();
   if (loading) return null;

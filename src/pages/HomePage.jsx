@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { motion } from 'framer-motion';
@@ -8,20 +8,20 @@ import 'swiper/css';
 import 'swiper/css/pagination';
 import 'swiper/css/navigation';
 import {
-  FiArrowRight, FiCheckCircle, FiHeart, FiShoppingCart,
-  FiZap, FiStar, FiTruck, FiShield, FiRefreshCw, FiCreditCard,
+  FiHeart, FiShoppingCart,
+  FiZap, FiStar,
   FiChevronLeft, FiChevronRight
 } from 'react-icons/fi';
 import toast from 'react-hot-toast';
 import api from '../utils/api';
-import { useCart } from '../context/CartContext';
-import { useWishlist } from '../context/WishlistContext';
-import { Reveal, RevealStagger, RevealItem } from '../components/ui/animations';
+import { useCart } from '../context/useCart';
+import { useWishlist } from '../context/useWishlist';
 import bannerSmartphones from '../assets/banners/banner-smartphones.png';
 import bannerLaptops from '../assets/banners/banner-laptops.png';
 import bannerAccessories from '../assets/banners/banner-accessories.png';
 import bannerAirpods from '../assets/banners/banner-airpods.png';
 import { getValidImageUrl } from '../utils/imageHelper';
+import ProductCardSkeleton from '../components/ui/skeleton/ProductCardSkeleton';
 
 // --- DEMO DATA ---
 const DEMO_PRODUCTS = [
@@ -129,15 +129,6 @@ const BrandLogo = ({ brand, size = 'md' }) => {
   );
 };
 
-const CATEGORIES = [
-  { name: 'Smartphones', category: 'Smartphones', image: 'https://m.media-amazon.com/images/I/81SigpJN1KL._SX679_.jpg', count: '500+', bg: '#FDE7EF', ring: '#F43F5E' },
-  { name: 'Smart Watches', category: 'Smart Watches', image: 'https://m.media-amazon.com/images/I/61ZjlBOp+rL._SX679_.jpg', count: '120+', bg: '#E9E6FF', ring: '#7C3AED' },
-  { name: 'Earbuds', category: 'Earbuds', image: 'https://m.media-amazon.com/images/I/61+bTvS5UpL._SX679_.jpg', count: '200+', bg: '#E1F5FE', ring: '#0284C7' },
-  { name: 'Chargers', category: 'Chargers', image: 'https://m.media-amazon.com/images/I/51K46sN5EDL._SX679_.jpg', count: '80+', bg: '#FFF3E0', ring: '#F97316' },
-  { name: 'Power Banks', category: 'Power Banks', image: 'https://m.media-amazon.com/images/I/71lVwl3q-kL._SX679_.jpg', count: '90+', bg: '#E8F5E9', ring: '#16A34A' },
-  { name: 'Accessories', category: 'Accessories', image: 'https://m.media-amazon.com/images/I/71lVwl3q-kL._SX679_.jpg', count: '150+', bg: '#FCE4EC', ring: '#DB2777' }
-];
-
 // Marketing offer cards for the "Hot Category Deals" section
 const CATEGORY_DEALS = [
   { name: 'Smartphones', offer: 'Up to 40% Off', image: 'https://static0.xdaimages.com/wordpress/wp-content/uploads/2024/01/galaxy-s24-ultra-1.png?q=50&fit=contain&w=420&dpr=1.5', bg: '#EEF8F0', accent: '#16A34A' },
@@ -148,12 +139,6 @@ const CATEGORY_DEALS = [
   { name: 'Accessories', offer: 'Up to 50% Off', image: 'https://png.pngtree.com/png-vector/20250125/ourmid/pngtree-universal-portable-three-sided-pyramid-mobile-accessory-png-image_15329597.png', bg: '#EEF8F0', accent: '#16A34A' },
   { name: 'Laptops', offer: 'Up to 40% Off', image: 'https://freepngimg.com/save/162035-laptop-notebook-png-file-hd/800x620', bg: '#EEF8F0', accent: '#16A34A' },
   { name: 'Tablets', offer: 'Up to 35% Off', image: 'https://www.pngarts.com/files/1/Apple-Tablet-Transparent-Image.png', bg: '#EEF8F0', accent: '#16A34A' }
-];
-
-const REVIEWS = [
-  { name: 'Raj Kumar', location: 'Chennai', text: 'Best prices in Tamil Nadu! Got my iPhone 15 Pro Max delivered the next day.', product: 'iPhone 15 Pro Max', rating: 5, color: '2563EB' },
-  { name: 'Priya S', location: 'Trichy', text: 'Very genuine products and amazing customer service. Will buy again!', product: 'Samsung Galaxy S24', rating: 5, color: '10B981' },
-  { name: 'Karthik N', location: 'Madurai', text: 'The EMI process was so smooth. Highly recommend AK Mobiles.', product: 'OnePlus 12', rating: 5, color: 'F97316' }
 ];
 
 const ProductCardUI = ({ product, disableHover = false }) => {
@@ -291,43 +276,48 @@ const toCard = (p) => ({
 const HomePage = () => {
   const [realProducts, setRealProducts] = useState([]);
   const [flashSaleProducts, setFlashSaleProducts] = useState([]);
-  const [flashSettings, setFlashSettings] = useState(null);
   const [customBanners, setCustomBanners] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('All');
 
   useEffect(() => {
+    let ignore = false;
     const fetchHomeData = async () => {
       try {
-        setLoading(true);
         const [prodRes, setRes] = await Promise.all([
           api.get('/products?limit=52').catch(() => ({ data: { products: [] } })),
           api.get('/settings').catch(() => ({ data: { settings: null } }))
         ]);
         
-        const allProds = Array.isArray(prodRes.data?.products) ? prodRes.data.products : [];
-        // Shuffle products randomly on every page load/refresh
-        const shuffled = [...allProds].sort(() => Math.random() - 0.5);
-        setRealProducts(shuffled);
-        
-        const flashSales = shuffled.filter(p => p.flashSale === true);
-        setFlashSaleProducts(flashSales.length > 0 ? flashSales.slice(0, 6) : shuffled.slice(0, 6));
-        
-        const settingsData = setRes.data?.settings;
-        setFlashSettings(settingsData || null);
-        if (settingsData?.banners && Array.isArray(settingsData.banners)) {
-          const activeBanners = settingsData.banners.filter(b => b.active !== false);
-          if (activeBanners.length > 0) {
-            setCustomBanners(activeBanners);
+        if (!ignore) {
+          const allProds = Array.isArray(prodRes.data?.products) ? prodRes.data.products : [];
+          // Shuffle products randomly on every page load/refresh
+          const shuffled = [...allProds].sort(() => Math.random() - 0.5);
+          setRealProducts(shuffled);
+
+          const flashSales = shuffled.filter(p => p.flashSale === true);
+          setFlashSaleProducts(flashSales.length > 0 ? flashSales.slice(0, 6) : shuffled.slice(0, 6));
+
+          const settingsData = setRes.data?.settings;
+          if (settingsData?.banners && Array.isArray(settingsData.banners)) {
+            const activeBanners = settingsData.banners.filter(b => b.active !== false);
+            if (activeBanners.length > 0) {
+              setCustomBanners(activeBanners);
+            }
           }
+          setLoading(false);
         }
       } catch (err) {
-        console.error('Error fetching storefront dataset:', err);
-      } finally {
-        setLoading(false);
+        if (!ignore) {
+          console.error('Error loading home data:', err);
+          setLoading(false);
+        }
       }
     };
     fetchHomeData();
+    return () => {
+      ignore = true;
+    };
   }, []);
 
   const heroSlides = customBanners.length > 0 ? customBanners : HERO_MARKETING_SLIDES;
@@ -472,10 +462,12 @@ const HomePage = () => {
             </div>
           </div>
 
-          <div className="p-4">
+          <div className="p-4" aria-busy={loading}>
             {loading ? (
-              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                {[...Array(6)].map((_, i) => <div key={i} className="animate-pulse bg-slate-100 h-64 rounded-xl" />)}
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4" aria-hidden="true">
+                {[...Array(6)].map((_, i) => (
+                  <ProductCardSkeleton key={i} />
+                ))}
               </div>
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
@@ -569,17 +561,21 @@ const HomePage = () => {
             </div>
           </div>
 
-          {loading ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-              {[...Array(8)].map((_, i) => <div key={i} className="animate-pulse bg-slate-100 h-72 rounded-xl" />)}
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-              {filteredProducts.map((product) => (
-                <ProductCardUI key={product.id || product._id} product={product} />
-              ))}
-            </div>
-          )}
+          <div aria-busy={loading}>
+            {loading ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4" aria-hidden="true">
+                {[...Array(8)].map((_, i) => (
+                  <ProductCardSkeleton key={i} />
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                {filteredProducts.map((product) => (
+                  <ProductCardUI key={product.id || product._id} product={product} />
+                ))}
+              </div>
+            )}
+          </div>
         </section>
       </div>
 

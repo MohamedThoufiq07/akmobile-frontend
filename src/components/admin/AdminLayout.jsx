@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { NavLink, Link, useNavigate, Outlet, useLocation } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   FiTrendingUp, FiPackage, FiShoppingBag, FiUsers, FiMail, FiZap, FiImage, FiLogOut, FiExternalLink, FiMenu, FiX,
 } from 'react-icons/fi';
-import { useAdminAuth } from '../../context/AdminAuthContext';
+import { useAdminAuth } from '../../context/useAdminAuth';
 
 const NAV = [
   { to: '/admin', label: 'Dashboard', icon: FiTrendingUp, end: true },
@@ -34,8 +34,7 @@ const AdminLayout = () => {
   const title = TITLES[pathname] || 'Admin';
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
-  // Close the mobile drawer whenever the route changes.
-  useEffect(() => { setMobileNavOpen(false); }, [pathname]);
+  const closeMobileNav = () => setMobileNavOpen(false);
 
   // Shared sidebar inner content (identical on desktop + mobile drawer).
   const sidebarContent = (
@@ -54,6 +53,7 @@ const AdminLayout = () => {
               key={to}
               to={to}
               end={end}
+              onClick={closeMobileNav}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors font-medium text-sm ${
                   isActive
@@ -69,7 +69,7 @@ const AdminLayout = () => {
       </div>
 
       <div className="p-4 border-t border-slate-100">
-        <Link to="/" className="flex items-center gap-2 text-sm text-slate-500 hover:text-blue-600 mb-4 px-1">
+        <Link to="/" onClick={closeMobileNav} className="flex items-center gap-2 text-sm text-slate-500 hover:text-blue-600 mb-4 px-1">
           <FiExternalLink size={16} /> View Storefront
         </Link>
         <div className="flex items-center gap-3 mb-3">

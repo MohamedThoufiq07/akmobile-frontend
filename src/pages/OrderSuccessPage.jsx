@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { FiCheckCircle, FiPackage, FiArrowRight, FiFileText } from 'react-icons/fi';
+import { FiCheckCircle, FiPackage, FiFileText } from 'react-icons/fi';
 import api from '../utils/api';
-import LoadingSpinner from '../components/ui/LoadingSpinner';
 import { Reveal } from '../components/ui/animations';
+import { PageSkeleton, Skeleton, SkeletonCircle } from '../components/ui/skeleton';
 
 const OrderSuccessPage = () => {
   const { id } = useParams();
@@ -12,22 +12,56 @@ const OrderSuccessPage = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let ignore = false;
     const fetchOrder = async () => {
       try {
         const { data } = await api.get(`/orders/${id}`);
-        setOrder(data.order);
+        if (!ignore) {
+          setOrder(data.order);
+          setLoading(false);
+        }
       } catch (error) {
-        console.error('Error fetching order:', error);
-      } finally {
-        setLoading(false);
+        if (!ignore) {
+          console.error('Error fetching order:', error);
+          setLoading(false);
+        }
       }
     };
 
     fetchOrder();
     window.scrollTo(0, 0);
+    return () => {
+      ignore = true;
+    };
   }, [id]);
 
-  if (loading) return <LoadingSpinner fullScreen />;
+  if (loading) {
+    return (
+      <PageSkeleton label="Loading order confirmation">
+        <div className="bg-slate-50 min-h-[80vh] py-12">
+          <div className="container mx-auto px-4 max-w-3xl">
+            <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-slate-100 p-8 space-y-6">
+              <div className="flex flex-col items-center gap-4">
+                <SkeletonCircle size="w-20 h-20" />
+                <Skeleton className="h-8 w-64" />
+                <Skeleton className="h-4 w-48" />
+              </div>
+              <div className="border-t border-b border-slate-100 py-6 space-y-3 flex flex-col items-center">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-6 w-48 font-mono" />
+                <Skeleton className="h-4 w-32 mt-2" />
+                <Skeleton className="h-5 w-56" />
+              </div>
+              <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                <Skeleton className="h-11 w-44 rounded-xl" />
+                <Skeleton className="h-11 w-44 rounded-xl" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </PageSkeleton>
+    );
+  }
 
   if (!order) {
     return (

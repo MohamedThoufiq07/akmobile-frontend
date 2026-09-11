@@ -1,12 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { FiArrowLeft, FiDownload, FiCheck, FiCheckCircle, FiPackage, FiTruck, FiMapPin, FiInfo, FiRefreshCw, FiAlertTriangle } from 'react-icons/fi';
 import api from '../utils/api';
 import { formatPrice } from '../utils/formatPrice';
+import { formatISTDateTime } from '../utils/dateFormatter';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
-import LoadingSpinner from '../components/ui/LoadingSpinner';
+import { OrderDetailSkeleton, PageSkeleton } from '../components/ui/skeleton';
 import { Reveal } from '../components/ui/animations';
 import { getValidImageUrl } from '../utils/imageHelper';
 import toast from 'react-hot-toast';
@@ -26,7 +27,7 @@ const OrderDetailPage = () => {
   const [isRetrying, setIsRetrying] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
 
-  const fetchOrder = async (isBackground = false) => {
+  const fetchOrder = useCallback(async (isBackground = false) => {
     if (!isBackground) setLoading(true);
     try {
       const { data } = await api.get(`/orders/${id}`);
@@ -39,11 +40,26 @@ const OrderDetailPage = () => {
     } finally {
       if (!isBackground) setLoading(false);
     }
-  };
+  }, [id]);
 
   useEffect(() => {
-    fetchOrder();
+    let ignore = false;
     window.scrollTo(0, 0);
+
+    api.get(`/orders/${id}`)
+      .then(({ data }) => {
+        if (!ignore) {
+          setOrder(data.order);
+          setError(null);
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (!ignore) {
+          setError(err.response?.data?.message || 'Error fetching order details');
+          setLoading(false);
+        }
+      });
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
@@ -64,10 +80,11 @@ const OrderDetailPage = () => {
     }, 30000);
 
     return () => {
+      ignore = true;
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       clearInterval(intervalId);
     };
-  }, [id]);
+  }, [id, fetchOrder]);
 
   const loadRazorpayScript = () => {
     return new Promise((resolve) => {
@@ -234,7 +251,7 @@ const OrderDetailPage = () => {
       doc.setFontSize(11);
       doc.setTextColor(0, 0, 0);
       doc.text(`Order ID: ${order._id}`, 14, 40);
-      doc.text(`Date: ${order.createdAt ? new Date(order.createdAt).toLocaleDateString('en-IN') : 'N/A'}`, 14, 46);
+      doc.text(`Date: ${formatISTDateTime(order.createdAt)}`, 14, 46);
       
       doc.text('Bill To:', 14, 60);
       doc.setFontSize(10);
@@ -301,7 +318,13 @@ const OrderDetailPage = () => {
     }
   };
 
-  if (loading) return <LoadingSpinner fullScreen />;
+  if (loading) {
+    return (
+      <PageSkeleton loading={true} statusText="Loading order details, please wait...">
+        <OrderDetailSkeleton />
+      </PageSkeleton>
+    );
+  }
 
   if (error || !order) {
     return (
@@ -392,11 +415,7 @@ const OrderDetailPage = () => {
                   <div className="text-right mt-4 sm:mt-0">
                     <p className="text-sm text-slate-500 mb-1">Created on</p>
                     <p className="font-semibold text-slate-900">
-                      {order.createdAt
-                        ? new Date(order.createdAt).toLocaleDateString('en-IN', {
-                            year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute:'2-digit'
-                          })
-                        : 'Recently'}
+                      {formatISTDateTime(order.createdAt, 'Recently')}
                     </p>
                   </div>
                 </div>

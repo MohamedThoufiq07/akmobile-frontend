@@ -1,19 +1,21 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { FiFilter, FiX, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
+import { FiFilter, FiX, FiChevronLeft, FiChevronRight, FiAlertCircle, FiRefreshCw } from 'react-icons/fi';
 import api from '../utils/api';
 import ProductCard from '../components/ui/ProductCard';
-import LoadingSpinner from '../components/ui/LoadingSpinner';
+import { ProductGridSkeleton, PageSkeleton } from '../components/ui/skeleton';
 import { Reveal, RevealStagger, RevealItem } from '../components/ui/animations';
 import { BRANDS, CATEGORIES, SORT_OPTIONS } from '../utils/constants';
 
 const ProductsPage = () => {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   
   // State for products and pagination
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [retryCount, setRetryCount] = useState(0);
   const [page, setPage] = useState(Number(searchParams.get('page')) || 1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalProducts, setTotalProducts] = useState(0);
@@ -30,65 +32,54 @@ const ProductsPage = () => {
     sort: searchParams.get('sort') || 'newest'
   });
 
-  // Fetch products when filters or page changes
+  const categoryParam = searchParams.get('category') || '';
+  const brandParam = searchParams.get('brand') ? searchParams.get('brand').split(',') : [];
+
+  const [prevParamsKey, setPrevParamsKey] = useState(() => `${categoryParam}|${brandParam.join(',')}`);
+  const currentParamsKey = `${categoryParam}|${brandParam.join(',')}`;
+
+  if (currentParamsKey !== prevParamsKey) {
+    setPrevParamsKey(currentParamsKey);
+    setPage(1);
+    setFilters(prev => ({ ...prev, category: categoryParam, brand: brandParam }));
+  }
+
+  // Fetch products when filters, page, or retryCount changes
   useEffect(() => {
-    const fetchProducts = async () => {
-      setLoading(true);
-      try {
-        let queryParams = `?page=${page}&limit=12`;
-        
-        if (filters.brand.length > 0) queryParams += `&brand=${filters.brand.join(',')}`;
-        if (filters.category) queryParams += `&category=${filters.category}`;
-        if (filters.minPrice) queryParams += `&minPrice=${filters.minPrice}`;
-        if (filters.maxPrice) queryParams += `&maxPrice=${filters.maxPrice}`;
-        if (filters.discount) queryParams += `&discount=${filters.discount}`;
-        if (filters.rating) queryParams += `&rating=${filters.rating}`;
-        if (filters.sort) queryParams += `&sort=${filters.sort}`;
-        
-        // Update URL params
-        const newParams = new URLSearchParams();
-        if (page > 1) newParams.set('page', page);
-        if (filters.brand.length > 0) newParams.set('brand', filters.brand.join(','));
-        if (filters.category) newParams.set('category', filters.category);
-        if (filters.minPrice) newParams.set('minPrice', filters.minPrice);
-        if (filters.maxPrice) newParams.set('maxPrice', filters.maxPrice);
-        if (filters.discount) newParams.set('discount', filters.discount);
-        if (filters.rating) newParams.set('rating', filters.rating);
-        if (filters.sort !== 'newest') newParams.set('sort', filters.sort);
-        setSearchParams(newParams, { replace: true });
-
-        const { data } = await api.get(`/products${queryParams}`);
-        // Guard against a non-JSON / unexpected response (e.g. an SPA-fallback
-        // HTML page when the API URL is misconfigured) so the page degrades to
-        // the empty state instead of crashing on `undefined.length`.
-        setProducts(Array.isArray(data?.products) ? data.products : []);
-        setTotalPages(data?.pages || 1);
-        setTotalProducts(data?.total || 0);
-      } catch (error) {
-        console.error('Error fetching products:', error);
-        setProducts([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchProducts();
-  }, [page, filters, setSearchParams]);
-
-  // Sync state with URL params when they change externally (e.g. from Footer links)
-  useEffect(() => {
-    const categoryParam = searchParams.get('category') || '';
-    const brandParam = searchParams.get('brand') ? searchParams.get('brand').split(',') : [];
+    let ignore = false;
+    let queryParams = `?page=${page}&limit=12`;
     
-    setFilters(prev => {
-      // Only update if they differ to avoid infinite loops
-      if (prev.category !== categoryParam || prev.brand.join(',') !== brandParam.join(',')) {
-        setPage(1); // Reset page on category change
-        return { ...prev, category: categoryParam, brand: brandParam };
-      }
-      return prev;
-    });
-  }, [searchParams]);
+    if (filters.brand.length > 0) queryParams += `&brand=${filters.brand.join(',')}`;
+    if (filters.category) queryParams += `&category=${filters.category}`;
+    if (filters.minPrice) queryParams += `&minPrice=${filters.minPrice}`;
+    if (filters.maxPrice) queryParams += `&maxPrice=${filters.maxPrice}`;
+    if (filters.discount) queryParams += `&discount=${filters.discount}`;
+    if (filters.rating) queryParams += `&rating=${filters.rating}`;
+    if (filters.sort) queryParams += `&sort=${filters.sort}`;
+
+    api.get(`/products${queryParams}`)
+      .then(({ data }) => {
+        if (!ignore) {
+          setProducts(Array.isArray(data?.products) ? data.products : []);
+          setTotalPages(data?.pages || 1);
+          setTotalProducts(data?.total || 0);
+          setError(null);
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (!ignore) {
+          console.error('Error fetching products:', err);
+          setError(err.response?.data?.message || 'Failed to load products. Please check your connection and try again.');
+          setProducts([]);
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [page, filters, retryCount]);
 
   // Handle filter changes
   const handleBrandChange = (brand) => {
@@ -486,9 +477,24 @@ const ProductsPage = () => {
               })}
             </div>
 
-            {/* Products */}
+            {/* Products Content Area with 5-State lifecycle */}
             {loading ? (
-              <LoadingSpinner />
+              <PageSkeleton loading={true} statusText="Loading products...">
+                <ProductGridSkeleton count={8} columns="grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" />
+              </PageSkeleton>
+            ) : error ? (
+              <div className="bg-white p-12 text-center rounded-2xl shadow-sm border border-red-100 max-w-lg mx-auto">
+                <FiAlertCircle className="text-red-500 mx-auto text-4xl mb-3" />
+                <h3 className="text-xl font-bold mb-2 text-slate-900">Unable to load products</h3>
+                <p className="text-slate-500 mb-6 text-sm">{error}</p>
+                <button
+                  type="button"
+                  onClick={() => setRetryCount((c) => c + 1)}
+                  className="inline-flex items-center gap-2 px-6 py-2.5 bg-brand-blue hover:bg-brand-blueHover text-white text-sm font-bold rounded-full transition-colors shadow-sm"
+                >
+                  <FiRefreshCw size={15} /> Try Again
+                </button>
+              </div>
             ) : products.length === 0 ? (
               <div className="bg-white p-12 text-center rounded-xl shadow-sm border border-slate-100">
                 <div className="text-5xl mb-4">🔍</div>

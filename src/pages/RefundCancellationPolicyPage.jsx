@@ -1,6 +1,6 @@
 import { Helmet } from 'react-helmet-async';
 import { motion } from 'framer-motion';
-import { FiRefreshCw, FiXCircle, FiCheckSquare, FiAlertCircle, FiTrendingUp, FiClock, FiMail, FiPhone } from 'react-icons/fi';
+import { FiXCircle, FiCheckSquare, FiAlertCircle, FiTrendingUp, FiClock, FiMail, FiPhone } from 'react-icons/fi';
 import logo from '../assets/logo_dark_text.png';
 
 const RefundCancellationPolicyPage = () => {

@@ -8,7 +8,8 @@ import {
 } from 'recharts';
 import adminApi from '../../utils/adminApi';
 import { formatPrice } from '../../utils/formatPrice';
-import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import { formatISTDateTime } from '../../utils/dateFormatter';
+import { AdminDashboardSkeleton, PageSkeleton } from '../../components/ui/skeleton';
 import { Reveal, RevealStagger, RevealItem } from '../../components/ui/animations';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -57,7 +58,13 @@ const AdminDashboard = () => {
   const recentOrders = stats?.recentOrders || [];
   const statusBreakdown = stats?.statusBreakdown || [];
 
-  if (loading) return <LoadingSpinner fullScreen />;
+  if (loading) {
+    return (
+      <PageSkeleton loading={true} statusText="Loading dashboard, please wait...">
+        <AdminDashboardSkeleton />
+      </PageSkeleton>
+    );
+  }
 
   if (error) {
     return (
@@ -187,7 +194,7 @@ const AdminDashboard = () => {
                   <tr key={order._id} className="hover:bg-slate-50">
                     <td className="p-4 text-sm font-mono text-slate-600 whitespace-nowrap">{order._id.substring(order._id.length - 8)}</td>
                     <td className="p-4 text-sm font-medium text-slate-900 whitespace-nowrap">{order.user?.name || order.shippingAddress?.name || 'Guest'}</td>
-                    <td className="p-4 text-sm text-slate-500 whitespace-nowrap">{new Date(order.createdAt).toLocaleDateString()}</td>
+                    <td className="p-4 text-sm text-slate-500 whitespace-nowrap">{formatISTDateTime(order.createdAt)}</td>
                     <td className="p-4 text-sm whitespace-nowrap">
                       <span className={`px-2 py-1 rounded-full text-xs font-bold ${STATUS_STYLES[order.orderStatus] || 'bg-slate-100 text-slate-800'}`}>
                         {order.orderStatus}

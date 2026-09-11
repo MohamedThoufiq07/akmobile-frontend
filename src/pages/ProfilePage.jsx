@@ -1,43 +1,46 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 import { FiUser, FiMail, FiPhone, FiMapPin, FiSave, FiLogOut } from 'react-icons/fi';
-import LoadingSpinner from '../components/ui/LoadingSpinner';
+import { ProfileSkeleton, PageSkeleton } from '../components/ui/skeleton';
 import { Reveal } from '../components/ui/animations';
 
 const ProfilePage = () => {
   const { user, loading, isAuthenticated, updateProfile, logout } = useAuth();
   const navigate = useNavigate();
   
-  const [formData, setFormData] = useState({
-    name: '',
-    phone: '',
-    addressLine1: '',
-    addressLine2: '',
-    city: '',
-    state: '',
-    postalCode: ''
-  });
+  const [formData, setFormData] = useState(() => ({
+    name: user?.name || '',
+    phone: user?.phone || '',
+    addressLine1: user?.addresses?.[0]?.addressLine1 || '',
+    addressLine2: user?.addresses?.[0]?.addressLine2 || '',
+    city: user?.addresses?.[0]?.city || '',
+    state: user?.addresses?.[0]?.state || '',
+    postalCode: user?.addresses?.[0]?.postalCode || ''
+  }));
+
+  const [prevUser, setPrevUser] = useState(user);
+  if (user && user !== prevUser) {
+    setPrevUser(user);
+    setFormData({
+      name: user.name || '',
+      phone: user.phone || '',
+      addressLine1: user.addresses?.[0]?.addressLine1 || '',
+      addressLine2: user.addresses?.[0]?.addressLine2 || '',
+      city: user.addresses?.[0]?.city || '',
+      state: user.addresses?.[0]?.state || '',
+      postalCode: user.addresses?.[0]?.postalCode || ''
+    });
+  }
+
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (!loading && !isAuthenticated) {
       navigate('/login');
     }
-
-    if (user) {
-      setFormData({
-        name: user.name || '',
-        phone: user.phone || '',
-        addressLine1: user.addresses?.[0]?.addressLine1 || '',
-        addressLine2: user.addresses?.[0]?.addressLine2 || '',
-        city: user.addresses?.[0]?.city || '',
-        state: user.addresses?.[0]?.state || '',
-        postalCode: user.addresses?.[0]?.postalCode || ''
-      });
-    }
-  }, [user, loading, isAuthenticated, navigate]);
+  }, [loading, isAuthenticated, navigate]);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -68,7 +71,13 @@ const ProfilePage = () => {
     navigate('/');
   };
 
-  if (loading) return <LoadingSpinner fullScreen />;
+  if (loading) {
+    return (
+      <PageSkeleton loading={true} statusText="Loading profile, please wait...">
+        <ProfileSkeleton />
+      </PageSkeleton>
+    );
+  }
   if (!user) return null;
 
   return (

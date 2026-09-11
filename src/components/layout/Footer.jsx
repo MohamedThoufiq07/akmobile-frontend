@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { FiFacebook, FiInstagram, FiTwitter, FiYoutube, FiMapPin, FiPhone, FiMail, FiClock } from 'react-icons/fi';
+import { FiFacebook, FiInstagram, FiYoutube, FiMapPin, FiPhone, FiMail, FiClock } from 'react-icons/fi';
 import { FaWhatsapp } from 'react-icons/fa';
 import logo from '../../assets/logo_dark_text.png';
 

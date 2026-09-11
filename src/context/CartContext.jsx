@@ -1,10 +1,7 @@
-import { createContext, useState, useContext, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import toast from 'react-hot-toast';
-import { SHIPPING_THRESHOLD, SHIPPING_CHARGE } from '../utils/constants';
-
-const CartContext = createContext();
-
-export const useCart = () => useContext(CartContext);
+import { getPrimaryProductImageUrl } from '../utils/imageHelper';
+import { CartContext } from './useCart';
 
 export const CartProvider = ({ children }) => {
   const [cartItems, setCartItems] = useState(() => {
@@ -22,15 +19,23 @@ export const CartProvider = ({ children }) => {
     return [];
   });
 
-  // Derived state — recomputed only when cartItems actually changes
+  // Derived state — delivery charge applies ONCE per distinct product line (NOT multiplied by quantity)
   const { safeCartItems, cartItemCount, cartSubtotal, cartTax, cartShipping, cartTotal } = useMemo(() => {
     const items = Array.isArray(cartItems) ? cartItems : [];
-    const subtotal = items.reduce((acc, item) => acc + (Number(item.price) || 0) * item.quantity, 0);
+    const subtotal = items.reduce((acc, item) => acc + (Number(item.price) || 0) * (Number(item.quantity) || 1), 0);
     const tax = Math.round(subtotal * 0.18); // Included GST amount for information
-    const shipping = items.length === 0 || subtotal >= SHIPPING_THRESHOLD ? 0 : SHIPPING_CHARGE;
+
+    // Sum delivery charge once per distinct cart line
+    const shipping = items.reduce((acc, item) => {
+      const charge = item.deliveryCharge !== undefined && item.deliveryCharge !== null
+        ? Number(item.deliveryCharge)
+        : 49;
+      return acc + (isNaN(charge) || charge < 0 ? 49 : charge);
+    }, 0);
+
     return {
       safeCartItems: items,
-      cartItemCount: items.reduce((acc, item) => acc + item.quantity, 0),
+      cartItemCount: items.reduce((acc, item) => acc + (Number(item.quantity) || 1), 0),
       cartSubtotal: subtotal,
       cartTax: tax,
       cartShipping: shipping,
@@ -64,47 +69,67 @@ export const CartProvider = ({ children }) => {
     }
 
     const productName = product.name || 'Product';
-    const productImage = product.images?.[0]?.url || product.image || '';
+    const productImage = getPrimaryProductImageUrl(product);
     const productPrice = product.offerPrice || product.offer || product.price || 0;
     const productStock = product.stock !== undefined ? product.stock : 99;
 
-    const existItem = cartItems.find((x) => x.product === productId);
+    // Parse delivery charge
+    let deliveryCharge = 49;
+    if (product.deliveryCharge !== undefined && product.deliveryCharge !== null) {
+      deliveryCharge = Number(product.deliveryCharge);
+    } else if (product.delivery_charge !== undefined && product.delivery_charge !== null) {
+      deliveryCharge = Number(product.delivery_charge);
+    }
+    if (isNaN(deliveryCharge) || deliveryCharge < 0) deliveryCharge = 49;
+
+    const existItem = cartItems.find((x) => (x.product || x.id) === productId);
     let updatedCart;
-    
+
     if (existItem) {
-      const newQuantity = existItem.quantity + quantity;
-      
+      const newQuantity = (existItem.quantity || 1) + quantity;
+
       if (newQuantity > productStock) {
         toast.error(`Sorry, only ${productStock} items in stock`);
         return;
       }
-      
+
       updatedCart = cartItems.map((x) =>
-        x.product === existItem.product ? { ...x, quantity: newQuantity } : x
+        (x.product || x.id) === productId
+          ? {
+              ...x,
+              quantity: newQuantity,
+              image: productImage || x.image,
+              deliveryCharge,
+            }
+          : x
       );
     } else {
       if (quantity > productStock) {
         toast.error(`Sorry, only ${productStock} items in stock`);
         return;
       }
-      
-      updatedCart = [...cartItems, {
-        product: productId,
-        name: productName,
-        brand: product.brand || '',
-        image: productImage,
-        price: productPrice,
-        stock: productStock,
-        quantity,
-      }];
+
+      updatedCart = [
+        ...cartItems,
+        {
+          product: productId,
+          name: productName,
+          brand: product.brand || '',
+          image: productImage,
+          price: productPrice,
+          deliveryCharge,
+          stock: productStock,
+          quantity,
+        },
+      ];
     }
-    
+
     saveCartToStorage(updatedCart);
     toast.success(`${productName} added to cart!`);
   }, [cartItems, saveCartToStorage]);
 
   const removeFromCart = useCallback((productId) => {
-    const updatedCart = cartItems.filter((x) => x.product !== productId);
+    const updatedCart = cartItems.filter((x) => (x.product || x.id) !== productId);
     saveCartToStorage(updatedCart);
     toast.success('Item removed from cart');
   }, [cartItems, saveCartToStorage]);
@@ -116,7 +141,7 @@ export const CartProvider = ({ children }) => {
     }
 
     const updatedCart = cartItems.map((item) => {
-      if (item.product === productId) {
+      if ((item.product || item.id) === productId) {
         if (quantity > item.stock) {
           toast.error(`Sorry, only ${item.stock} items in stock`);
           return item;
@@ -148,3 +173,5 @@ export const CartProvider = ({ children }) => {
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 };
+
+export default CartProvider;

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 import { FiMail, FiLock, FiUser, FiEye, FiEyeOff } from 'react-icons/fi';
 import { FcGoogle } from 'react-icons/fc';
 import toast from 'react-hot-toast';

@@ -1,18 +1,18 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { FiShoppingCart, FiHeart, FiCheck, FiTruck, FiShield, FiZap } from 'react-icons/fi';
+import { FiShoppingCart, FiHeart, FiCheck, FiTruck, FiShield, FiZap, FiChevronUp, FiChevronDown, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
 import { FaHeart } from 'react-icons/fa';
 import api from '../utils/api';
-import { useCart } from '../context/CartContext';
-import { useWishlist } from '../context/WishlistContext';
+import { useCart } from '../context/useCart';
+import { useWishlist } from '../context/useWishlist';
 import { useRecentlyViewed } from '../hooks/useRecentlyViewed';
 import { formatPrice } from '../utils/formatPrice';
-import LoadingSpinner from '../components/ui/LoadingSpinner';
 import RatingStars from '../components/ui/RatingStars';
 import ProductCard from '../components/ui/ProductCard';
+import { ProductDetailSkeleton, PageSkeleton } from '../components/ui/skeleton';
 import { Reveal, RevealStagger, RevealItem } from '../components/ui/animations';
-import { getValidImageUrl } from '../utils/imageHelper';
+import { getValidImageUrl, getPlaceholderSvg } from '../utils/imageHelper';
 
 const ProductDetailPage = () => {
   const { id } = useParams();
@@ -31,64 +31,65 @@ const ProductDetailPage = () => {
   const [showZoom, setShowZoom] = useState(false);
   const [zoomState, setZoomState] = useState({ lensX: 0, lensY: 0, bgX: 0, bgY: 0 });
 
+  const thumbnailContainerRef = useRef(null);
+
   const handleMouseMove = (e) => {
     const container = e.currentTarget;
     const rect = container.getBoundingClientRect();
-    
+
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    
-    // Lens dimensions
+
     const lensWidth = 160;
     const lensHeight = 160;
-    
-    // Position lens, centering it on the mouse pointer
+
     let lensX = x - lensWidth / 2;
     let lensY = y - lensHeight / 2;
-    
-    // Constraint boundaries
+
     if (lensX < 0) lensX = 0;
     if (lensX > rect.width - lensWidth) lensX = rect.width - lensWidth;
-    
+
     if (lensY < 0) lensY = 0;
     if (lensY > rect.height - lensHeight) lensY = rect.height - lensHeight;
-    
-    // Calculate percentage position
+
     const bgX = (lensX / (rect.width - lensWidth)) * 100;
     const bgY = (lensY / (rect.height - lensHeight)) * 100;
-    
-    setZoomState({
-      lensX,
-      lensY,
-      bgX,
-      bgY
-    });
+
+    setZoomState({ lensX, lensY, bgX, bgY });
   };
 
   useEffect(() => {
+    let ignore = false;
     const fetchProductDetails = async () => {
-      setLoading(true);
-      setError(null);
       try {
         const { data } = await api.get(`/products/${id}`);
-        setProduct(data.product);
-        addRecentlyViewed(data.product);
-        setActiveImage(0); // Reset image on new product
+        if (!ignore) {
+          setProduct(data.product);
+          addRecentlyViewed(data.product);
+          setActiveImage(0); // Reset image on new product
+          setError(null);
+        }
 
         // Fetch related products
         const relatedRes = await api.get(`/products/${id}/related`);
-        setRelatedProducts(Array.isArray(relatedRes.data?.products) ? relatedRes.data.products : []);
-
-      } catch (err) {
-        setError('Product not found or error loading details.');
-      } finally {
-        setLoading(false);
+        if (!ignore) {
+          setRelatedProducts(Array.isArray(relatedRes.data?.products) ? relatedRes.data.products : []);
+          setLoading(false);
+        }
+      } catch {
+        if (!ignore) {
+          setError('Product not found or error loading details.');
+          setLoading(false);
+        }
       }
     };
 
     fetchProductDetails();
     window.scrollTo(0, 0);
-  }, [id]);
+    return () => {
+      ignore = true;
+    };
+  }, [id, addRecentlyViewed]);
 
   const handleAddToCart = () => {
     addToCart(product, quantity);
@@ -99,7 +100,23 @@ const ProductDetailPage = () => {
     navigate('/checkout');
   };
 
-  if (loading) return <LoadingSpinner fullScreen />;
+  const scrollThumbnails = (direction) => {
+    if (!thumbnailContainerRef.current) return;
+    const offset = direction === 'next' ? 120 : -120;
+    thumbnailContainerRef.current.scrollBy({
+      top: offset,
+      left: offset,
+      behavior: 'smooth',
+    });
+  };
+
+  if (loading) {
+    return (
+      <PageSkeleton loading={true} statusText="Loading product details, please wait...">
+        <ProductDetailSkeleton />
+      </PageSkeleton>
+    );
+  }
 
   if (error || !product) {
     return (
@@ -113,53 +130,159 @@ const ProductDetailPage = () => {
 
   const isWished = isInWishlist(product._id);
 
-  // Deduplicate product images by URL
+  // Normalize gallery images
   const uniqueImages = [];
   const seenUrls = new Set();
-  (product.images || []).forEach(img => {
-    if (img && img.url && !seenUrls.has(img.url)) {
-      seenUrls.add(img.url);
-      uniqueImages.push(img);
+
+  (product.images || []).forEach((img, idx) => {
+    const rawUrl = typeof img === 'string' ? img : img.url;
+    if (rawUrl && !seenUrls.has(rawUrl)) {
+      seenUrls.add(rawUrl);
+      uniqueImages.push({
+        url: rawUrl,
+        alt: (typeof img === 'object' && (img.altText || img.alt)) ? (img.altText || img.alt) : `${product.name} angle ${idx + 1}`,
+      });
     }
   });
+
+  if (uniqueImages.length === 0) {
+    uniqueImages.push({
+      url: getPlaceholderSvg(product.name),
+      alt: product.name,
+    });
+  }
+
+  const currentImgUrl = getValidImageUrl(uniqueImages[activeImage]?.url, product.name);
+  const deliveryChargeNum = parseFloat(product.deliveryCharge);
+  const isFreeDelivery = isNaN(deliveryChargeNum) || deliveryChargeNum === 0;
 
   return (
     <>
       <Helmet>
         <title>{product.name} | AK Mobiles</title>
-        <meta name="description" content={product.description.substring(0, 150)} />
+        <meta name="description" content={product.description?.substring(0, 150) || product.name} />
       </Helmet>
 
       <div className="container mx-auto px-4 py-8">
         <div className="flex flex-col lg:flex-row gap-12 bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-100">
-          
-          {/* Left Column - Images */}
-          <Reveal className="lg:w-1/2 min-w-0 flex flex-col md:flex-row-reverse gap-4">
-            {/* Main Image */}
-            <div 
-              className="flex-1 bg-slate-50 rounded-xl p-8 relative flex items-center justify-center border border-slate-100 group cursor-zoom-in"
+
+          {/* Left Column - Image Gallery (Thumbnails on Left for Desktop, Below for Mobile) */}
+          <Reveal className="lg:w-1/2 min-w-0 flex flex-col md:flex-row gap-4 items-start">
+
+            {/* Desktop Thumbnail Column (Left side of main image) & Mobile Thumbnail Strip (Below main image on mobile) */}
+            <div className="order-2 md:order-1 flex md:flex-col items-center gap-2 w-full md:w-20 shrink-0">
+              {uniqueImages.length > 5 && (
+                <button
+                  type="button"
+                  onClick={() => scrollThumbnails('prev')}
+                  aria-label="Previous thumbnails"
+                  className="hidden md:flex p-1 text-slate-400 hover:text-[#534AB7] hover:bg-slate-100 rounded-full transition-colors"
+                >
+                  <FiChevronUp size={18} />
+                </button>
+              )}
+
+              {/* Mobile Prev Arrow */}
+              {uniqueImages.length > 4 && (
+                <button
+                  type="button"
+                  onClick={() => scrollThumbnails('prev')}
+                  aria-label="Previous thumbnails"
+                  className="md:hidden p-2 text-slate-500 hover:text-[#534AB7] bg-slate-100 rounded-full shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center"
+                >
+                  <FiChevronLeft size={18} />
+                </button>
+              )}
+
+              {/* Scrollable Container */}
+              <div
+                ref={thumbnailContainerRef}
+                className="flex md:flex-col gap-2.5 overflow-x-auto md:overflow-y-auto md:max-h-[450px] w-full py-1 scroll-smooth no-scrollbar"
+              >
+                {uniqueImages.map((img, index) => (
+                  <button
+                    key={index}
+                    type="button"
+                    onClick={() => setActiveImage(index)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setActiveImage(index);
+                      }
+                    }}
+                    tabIndex={0}
+                    aria-label={`View photo ${index + 1} of ${uniqueImages.length}`}
+                    className={`w-16 h-16 md:w-20 md:h-20 shrink-0 rounded-xl p-1.5 border-2 transition-all duration-200 min-h-[44px] min-w-[44px] flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-[#534AB7] ${
+                      activeImage === index
+                        ? 'border-[#534AB7] bg-pink-50/30 shadow-sm scale-102 ring-1 ring-[#534AB7]'
+                        : 'border-slate-200 bg-slate-50/70 opacity-75 hover:opacity-100 hover:border-slate-300'
+                    }`}
+                  >
+                    <img
+                      src={getValidImageUrl(img.url, product.name)}
+                      alt={img.alt || `${product.name} view ${index + 1}`}
+                      className="w-full h-full object-contain pointer-events-none select-none"
+                      loading="lazy"
+                      onError={(e) => {
+                        e.target.onerror = null;
+                        e.target.src = getPlaceholderSvg(product.name);
+                      }}
+                    />
+                  </button>
+                ))}
+              </div>
+
+              {/* Mobile Next Arrow */}
+              {uniqueImages.length > 4 && (
+                <button
+                  type="button"
+                  onClick={() => scrollThumbnails('next')}
+                  aria-label="Next thumbnails"
+                  className="md:hidden p-2 text-slate-500 hover:text-[#534AB7] bg-slate-100 rounded-full shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center"
+                >
+                  <FiChevronRight size={18} />
+                </button>
+              )}
+
+              {uniqueImages.length > 5 && (
+                <button
+                  type="button"
+                  onClick={() => scrollThumbnails('next')}
+                  aria-label="Next thumbnails"
+                  className="hidden md:flex p-1 text-slate-400 hover:text-[#534AB7] hover:bg-slate-100 rounded-full transition-colors"
+                >
+                  <FiChevronDown size={18} />
+                </button>
+              )}
+            </div>
+
+            {/* Main Display Image */}
+            <div
+              className="order-1 md:order-2 flex-1 w-full bg-slate-50 rounded-2xl p-6 sm:p-8 relative flex items-center justify-center border border-slate-100 group cursor-zoom-in min-h-[320px] sm:min-h-[450px]"
               onMouseEnter={() => setShowZoom(true)}
               onMouseLeave={() => setShowZoom(false)}
               onMouseMove={handleMouseMove}
             >
               {product.discount > 0 && (
-                <div className="absolute top-4 left-4 bg-red-500 text-white font-bold text-xs px-3 py-1 rounded shadow-md z-10">
+                <div className="absolute top-4 left-4 bg-gradient-to-r from-pink-500 to-fuchsia-500 text-white font-bold text-xs px-3 py-1 rounded-lg shadow-md z-10">
                   {product.discount}% OFF
                 </div>
               )}
-              <img 
-                src={getValidImageUrl(uniqueImages[activeImage]?.url, product.name)} 
-                alt={product.name} 
-                className="w-full h-auto max-h-[500px] object-contain select-none pointer-events-none"
-                loading="lazy"
+
+              <img
+                src={currentImgUrl}
+                alt={uniqueImages[activeImage]?.alt || product.name}
+                className="w-full h-auto max-h-[450px] object-contain select-none pointer-events-none transition-transform duration-300"
+                loading="eager"
                 onError={(e) => {
                   e.target.onerror = null;
-                  e.target.src = `https://placehold.co/400x500/f1f5f9/64748b?text=${encodeURIComponent(product.brand)}`;
+                  e.target.src = getPlaceholderSvg(product.name);
                 }}
               />
+
               {showZoom && (
-                <div 
-                  className="absolute bg-white/40 border border-white/70 pointer-events-none z-10 shadow-sm"
+                <div
+                  className="absolute bg-white/40 border border-white/70 pointer-events-none z-10 shadow-sm rounded-lg"
                   style={{
                     left: `${zoomState.lensX}px`,
                     top: `${zoomState.lensY}px`,
@@ -168,39 +291,18 @@ const ProductDetailPage = () => {
                   }}
                 />
               )}
+
               {showZoom && (
-                <div 
-                  className="hidden lg:block absolute left-[105%] top-0 w-[600px] h-[500px] bg-slate-50 border border-slate-200 shadow-2xl rounded-2xl z-30 overflow-hidden pointer-events-none"
+                <div
+                  className="hidden lg:block absolute left-[105%] top-0 w-[550px] h-[480px] bg-slate-50 border border-slate-200 shadow-2xl rounded-2xl z-30 overflow-hidden pointer-events-none"
                   style={{
-                    backgroundImage: `url(${getValidImageUrl(uniqueImages[activeImage]?.url, product.name)})`,
+                    backgroundImage: `url(${currentImgUrl})`,
                     backgroundPosition: `${zoomState.bgX}% ${zoomState.bgY}%`,
                     backgroundSize: '250% 250%',
                     backgroundRepeat: 'no-repeat',
                   }}
                 />
               )}
-            </div>
-            
-            {/* Thumbnails */}
-            <div className="flex md:flex-col gap-3 overflow-x-auto md:overflow-visible pb-2 md:pb-0 md:w-20 shrink-0">
-              {uniqueImages.map((img, index) => (
-                <button 
-                  key={index}
-                  onClick={() => setActiveImage(index)}
-                  className={`w-16 h-16 md:w-20 md:h-20 shrink-0 rounded-lg p-2 border-2 transition-all ${activeImage === index ? 'border-brand-blue bg-white shadow-sm' : 'border-slate-200 bg-slate-50/50 opacity-70 hover:opacity-100'}`}
-                >
-                  <img
-                    src={getValidImageUrl(img.url, product.name)}
-                    alt={`${product.name} ${index + 1}`}
-                    className="w-full h-full object-contain"
-                    loading="lazy"
-                    onError={(e) => {
-                      e.target.onerror = null;
-                      e.target.src = `https://placehold.co/100x100/f1f5f9/64748b?text=${encodeURIComponent(product.brand)}`;
-                    }}
-                  />
-                </button>
-              ))}
             </div>
           </Reveal>
 
@@ -210,7 +312,7 @@ const ProductDetailPage = () => {
               <span className="text-sm font-bold text-brand-blue tracking-wider uppercase">{product.brand}</span>
             </div>
             <h1 className="text-3xl md:text-4xl font-bold text-slate-800 mb-4">{product.name}</h1>
-            
+
             <div className="flex items-center gap-4 mb-6">
               <div className="flex items-center bg-slate-50 px-3 py-1 rounded-full border border-slate-200">
                 <span className="font-bold mr-2 text-sm text-slate-800">{product.rating.toFixed(1)}</span>
@@ -223,10 +325,24 @@ const ProductDetailPage = () => {
               <span className="text-sm text-slate-500">{product.numSold} sold</span>
             </div>
 
-            <div className="mb-6 flex items-end gap-3 flex-wrap">
+            <div className="mb-4 flex items-end gap-3 flex-wrap">
               <span className="text-3xl sm:text-4xl font-bold text-slate-900">{formatPrice(product.offerPrice)}</span>
               {product.originalPrice > product.offerPrice && (
                 <span className="text-lg sm:text-xl text-slate-400 line-through mb-1">{formatPrice(product.originalPrice)}</span>
+              )}
+            </div>
+
+            {/* Delivery Charge Info */}
+            <div className="mb-6 flex items-center gap-2 text-sm">
+              <FiTruck className="text-brand-blue shrink-0" size={18} />
+              {isFreeDelivery ? (
+                <span className="font-semibold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full">
+                  Free Delivery
+                </span>
+              ) : (
+                <span className="font-semibold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-full">
+                  Delivery ₹{deliveryChargeNum % 1 === 0 ? deliveryChargeNum : deliveryChargeNum.toFixed(2)}
+                </span>
               )}
             </div>
 
@@ -249,12 +365,12 @@ const ProductDetailPage = () => {
                   {product.stock > 0 ? `In Stock (${product.stock} available)` : 'Out of Stock'}
                 </span>
               </div>
-              
+
               <div className="flex flex-col sm:flex-row gap-3">
-                {/* Clean Quantity Selector */}
+                {/* Quantity Selector */}
                 <div className="flex items-center border border-slate-200 rounded-xl h-12 w-32 shrink-0 bg-slate-50/50 p-1">
                   <button
-                    onClick={() => setQuantity(q => Math.max(1, q - 1))}
+                    onClick={() => setQuantity((q) => Math.max(1, q - 1))}
                     disabled={product.stock <= 0}
                     className="w-9 h-full flex items-center justify-center font-semibold text-slate-600 hover:bg-white hover:shadow-sm rounded-lg transition-all disabled:opacity-40"
                   >
@@ -267,7 +383,7 @@ const ProductDetailPage = () => {
                     className="w-full text-center bg-transparent font-bold text-slate-800 text-sm focus:outline-none"
                   />
                   <button
-                    onClick={() => setQuantity(q => Math.min(product.stock, q + 1))}
+                    onClick={() => setQuantity((q) => Math.min(product.stock, q + 1))}
                     disabled={product.stock <= 0 || quantity >= product.stock}
                     className="w-9 h-full flex items-center justify-center font-semibold text-slate-600 hover:bg-white hover:shadow-sm rounded-lg transition-all disabled:opacity-40"
                   >
@@ -276,7 +392,7 @@ const ProductDetailPage = () => {
                 </div>
 
                 {/* Add to Cart Button */}
-                <button 
+                <button
                   onClick={handleAddToCart}
                   disabled={product.stock <= 0}
                   className="flex-1 h-12 px-5 bg-pink-50 hover:bg-pink-100/80 text-brand-blue font-bold rounded-xl flex items-center justify-center gap-2 border border-pink-200/60 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-pink-50"
@@ -286,7 +402,7 @@ const ProductDetailPage = () => {
                 </button>
 
                 {/* Wishlist Button */}
-                <button 
+                <button
                   onClick={() => toggleWishlist(product._id)}
                   className="h-12 w-12 shrink-0 border border-slate-200 rounded-xl flex items-center justify-center hover:border-red-200 hover:bg-red-50/50 transition-all text-slate-400 hover:text-red-500 focus:outline-none"
                   title="Wishlist"
@@ -296,7 +412,7 @@ const ProductDetailPage = () => {
               </div>
 
               {/* Buy it Now Button */}
-              <button 
+              <button
                 onClick={handleBuyNow}
                 disabled={product.stock <= 0}
                 className="w-full mt-3 h-12 bg-gradient-to-r from-brand-blue to-purple-600 hover:from-brand-blueHover hover:to-purple-700 text-white font-bold rounded-xl text-base flex items-center justify-center gap-2 shadow-md shadow-brand-blue/20 hover:shadow-lg hover:shadow-brand-blue/30 active:scale-[0.99] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
@@ -310,7 +426,7 @@ const ProductDetailPage = () => {
             <div className="flex gap-6 p-4 bg-slate-50/70 rounded-xl mt-auto border border-slate-100">
               <div className="flex items-center gap-2 text-sm text-slate-600 font-medium">
                 <FiTruck className="text-brand-blue" size={18} />
-                <span>Free Delivery</span>
+                <span>{isFreeDelivery ? 'Free Delivery' : `Delivery ₹${deliveryChargeNum.toFixed(2)}`}</span>
               </div>
               <div className="flex items-center gap-2 text-sm text-slate-600 font-medium">
                 <FiShield className="text-brand-blue" size={18} />
@@ -324,20 +440,26 @@ const ProductDetailPage = () => {
         <Reveal className="mt-12 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
           <div className="flex overflow-x-auto border-b border-slate-200">
             <button
-              className={`flex-1 min-w-[110px] py-3 sm:py-4 px-2 text-sm sm:text-base font-bold text-center border-b-2 transition-colors ${activeTab === 'description' ? 'border-brand-blue text-brand-blue bg-pink-50/30' : 'border-transparent text-slate-500 hover:bg-slate-50'}`}
+              className={`flex-1 min-w-[110px] py-3 sm:py-4 px-2 text-sm sm:text-base font-bold text-center border-b-2 transition-colors ${
+                activeTab === 'description' ? 'border-brand-blue text-brand-blue bg-pink-50/30' : 'border-transparent text-slate-500 hover:bg-slate-50'
+              }`}
               onClick={() => setActiveTab('description')}
             >
               Description
             </button>
             <button
-              className={`flex-1 min-w-[110px] py-3 sm:py-4 px-2 text-sm sm:text-base font-bold text-center border-b-2 transition-colors ${activeTab === 'specifications' ? 'border-brand-blue text-brand-blue bg-pink-50/30' : 'border-transparent text-slate-500 hover:bg-slate-50'}`}
+              className={`flex-1 min-w-[110px] py-3 sm:py-4 px-2 text-sm sm:text-base font-bold text-center border-b-2 transition-colors ${
+                activeTab === 'specifications' ? 'border-brand-blue text-brand-blue bg-pink-50/30' : 'border-transparent text-slate-500 hover:bg-slate-50'
+              }`}
               onClick={() => setActiveTab('specifications')}
             >
               Specifications
             </button>
             <button
               id="reviews"
-              className={`flex-1 min-w-[110px] py-3 sm:py-4 px-2 text-sm sm:text-base font-bold text-center border-b-2 transition-colors ${activeTab === 'reviews' ? 'border-brand-blue text-brand-blue bg-pink-50/30' : 'border-transparent text-slate-500 hover:bg-slate-50'}`}
+              className={`flex-1 min-w-[110px] py-3 sm:py-4 px-2 text-sm sm:text-base font-bold text-center border-b-2 transition-colors ${
+                activeTab === 'reviews' ? 'border-brand-blue text-brand-blue bg-pink-50/30' : 'border-transparent text-slate-500 hover:bg-slate-50'
+              }`}
               onClick={() => setActiveTab('reviews')}
             >
               Reviews ({product.numReviews})
@@ -345,7 +467,6 @@ const ProductDetailPage = () => {
           </div>
 
           <div className="p-6 md:p-8">
-            {/* Description Tab */}
             {activeTab === 'description' && (
               <div className="prose max-w-none text-slate-600">
                 <p className="text-lg leading-relaxed mb-6">{product.description}</p>
@@ -358,13 +479,17 @@ const ProductDetailPage = () => {
               </div>
             )}
 
-            {/* Specifications Tab */}
             {activeTab === 'specifications' && (
               <div>
                 <h3 className="font-bold text-slate-800 text-xl mb-6">Technical Specifications</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-0 overflow-hidden rounded-xl border border-slate-200">
                   {Object.entries(product.specifications || {}).map(([key, value], idx) => (
-                    <div key={key} className={`flex p-4 ${idx % 2 === 0 ? 'bg-slate-50' : 'bg-white'} border-b border-slate-200 md:border-b-0 md:[&:not(:nth-last-child(-n+2))]:border-b`}>
+                    <div
+                      key={key}
+                      className={`flex p-4 ${
+                        idx % 2 === 0 ? 'bg-slate-50' : 'bg-white'
+                      } border-b border-slate-200 md:border-b-0 md:[&:not(:nth-last-child(-n+2))]:border-b`}
+                    >
                       <div className="w-1/3 font-semibold text-slate-700 capitalize">{key}</div>
                       <div className="w-2/3 text-slate-600">{value}</div>
                     </div>
@@ -373,7 +498,6 @@ const ProductDetailPage = () => {
               </div>
             )}
 
-            {/* Reviews Tab */}
             {activeTab === 'reviews' && (
               <div>
                 <div className="flex flex-col md:flex-row items-center justify-between mb-8 pb-8 border-b border-slate-100">
@@ -387,11 +511,13 @@ const ProductDetailPage = () => {
                       </div>
                     </div>
                   </div>
-                  
+
                   <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 max-w-sm w-full text-center">
                     <p className="font-semibold mb-2 text-slate-800">Bought this product?</p>
                     <p className="text-sm text-slate-500 mb-4">Share your experience with other customers</p>
-                    <Link to="/login" className="px-4 py-2 bg-white border border-slate-300 font-semibold rounded-lg hover:bg-slate-100 text-slate-700 block transition-all">Write a Review</Link>
+                    <Link to="/login" className="px-4 py-2 bg-white border border-slate-300 font-semibold rounded-lg hover:bg-slate-100 text-slate-700 block transition-all">
+                      Write a Review
+                    </Link>
                   </div>
                 </div>
 
@@ -430,7 +556,7 @@ const ProductDetailPage = () => {
           <Reveal as="section" className="mt-16">
             <h2 className="text-2xl font-bold text-slate-800 mb-8 border-b border-slate-200 pb-4">You May Also Like</h2>
             <RevealStagger className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-              {relatedProducts.map(related => (
+              {relatedProducts.map((related) => (
                 <RevealItem key={related._id} className="min-w-0">
                   <ProductCard product={related} />
                 </RevealItem>

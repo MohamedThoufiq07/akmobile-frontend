@@ -1,10 +1,7 @@
-import { createContext, useState, useEffect, useContext } from 'react';
+import { useState, useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import adminApi from '../utils/adminApi';
-
-const AdminAuthContext = createContext();
-
-export const useAdminAuth = () => useContext(AdminAuthContext);
+import { AdminAuthContext } from './useAdminAuth';
 
 // Used as a route element (renders <Outlet/>) so it wraps every /admin path
 // with an admin-only session that is independent of the storefront login.
@@ -13,20 +10,30 @@ export const AdminAuthProvider = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let ignore = false;
     const check = async () => {
       const token = localStorage.getItem('adminToken');
       if (token) {
         try {
           const { data } = await adminApi.get('/auth/profile');
-          if (data.user?.role === 'admin') setAdmin(data.user);
-          else localStorage.removeItem('adminToken');
+          if (!ignore) {
+            if (data.user?.role === 'admin') setAdmin(data.user);
+            else localStorage.removeItem('adminToken');
+          }
         } catch {
-          localStorage.removeItem('adminToken');
+          if (!ignore) {
+            localStorage.removeItem('adminToken');
+          }
         }
       }
-      setLoading(false);
+      if (!ignore) {
+        setLoading(false);
+      }
     };
     check();
+    return () => {
+      ignore = true;
+    };
   }, []);
 
   // Verifies the account is an admin BEFORE storing a session.
@@ -55,3 +62,5 @@ export const AdminAuthProvider = () => {
     </AdminAuthContext.Provider>
   );
 };
+
+export default AdminAuthProvider;

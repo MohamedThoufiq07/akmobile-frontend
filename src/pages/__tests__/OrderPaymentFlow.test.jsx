@@ -82,6 +82,16 @@ const mockAuthContext = {
   loading: false,
 };
 
+vi.mock('../../context/useCart', () => ({
+  useCart: () => mockCartContext,
+  default: () => mockCartContext,
+}));
+
+vi.mock('../../context/useAuth', () => ({
+  useAuth: () => mockAuthContext,
+  default: () => mockAuthContext,
+}));
+
 vi.mock('../../context/CartContext', () => ({
   useCart: () => mockCartContext,
 }));
@@ -396,6 +406,27 @@ describe('OrderPaymentFlow and Cancellation Suite', () => {
       expect(mockClearCart).toHaveBeenCalledTimes(1);
       expect(mockNavigate).toHaveBeenCalledWith('/order-success/000000000000000000000001');
       expect(toast.success).toHaveBeenCalledWith('Payment successful! Order placed.');
+    });
+  });
+
+  describe('Timezone and Date Formatting Suite', () => {
+    it('converts UTC timestamps into exact Asia/Kolkata (IST) display format', async () => {
+      const { formatISTDateTime, formatISTDateOnly } = await import('../../utils/dateFormatter');
+
+      // Exact test case from requirement: 2026-09-10T04:32:24Z -> 10 Sep 2026, 10:02 AM IST
+      const utcTimestamp = '2026-09-10T04:32:24Z';
+      const formatted = formatISTDateTime(utcTimestamp);
+      expect(formatted).toBe('10 Sep 2026, 10:02 AM IST');
+
+      // Date only formatting
+      const dateOnly = formatISTDateOnly(utcTimestamp);
+      expect(dateOnly).toBe('10 Sep 2026');
+
+      // Safe fallback handling
+      expect(formatISTDateTime(null)).toBe('N/A');
+      expect(formatISTDateTime(undefined)).toBe('N/A');
+      expect(formatISTDateTime('invalid-date')).toBe('N/A');
+      expect(formatISTDateTime('', 'Custom Fallback')).toBe('Custom Fallback');
     });
   });
 });

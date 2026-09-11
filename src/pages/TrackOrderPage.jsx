@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FiSearch, FiPackage, FiTruck, FiMapPin, FiMail, FiPhone, FiCheckCircle, FiInbox } from 'react-icons/fi';
+import { FiSearch, FiAlertTriangle, FiCheckCircle, FiInbox } from 'react-icons/fi';
+import { TrackOrderSkeleton, PageSkeleton } from '../components/ui/skeleton';
 import logo from '../assets/logo_dark_text.png';
 
 const TrackOrderPage = () => {
@@ -133,16 +134,9 @@ const TrackOrderPage = () => {
           <div className="lg:col-span-7">
             <AnimatePresence mode="wait">
               {loading && (
-                <motion.div
-                  key="loading"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className="bg-white rounded-2xl border border-slate-200/60 p-12 text-center shadow-sm flex flex-col items-center justify-center min-h-[300px]"
-                >
-                  <div className="w-10 h-10 border-4 border-brand-blue border-t-transparent rounded-full animate-spin mb-4"></div>
-                  <p className="text-slate-500 font-bold text-sm">Retrieving your order details...</p>
-                </motion.div>
+                <PageSkeleton loading={true} statusText="Retrieving your order details...">
+                  <TrackOrderSkeleton />
+                </PageSkeleton>
               )}
 
               {!loading && error && (

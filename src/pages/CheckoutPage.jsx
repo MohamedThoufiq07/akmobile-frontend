@@ -3,11 +3,12 @@ import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { FiArrowLeft } from 'react-icons/fi';
 import api from '../utils/api';
-import { useCart } from '../context/CartContext';
-import { useAuth } from '../context/AuthContext';
+import { useCart } from '../context/useCart';
+import { useAuth } from '../context/useAuth';
 import { formatPrice } from '../utils/formatPrice';
 import toast from 'react-hot-toast';
 import { Reveal } from '../components/ui/animations';
+import { CheckoutSkeleton, PageSkeleton } from '../components/ui/skeleton';
 import logo from '../assets/logo.png';
 import { getValidImageUrl } from '../utils/imageHelper';
 
@@ -54,17 +55,32 @@ const CheckoutPage = () => {
   const location = useLocation();
   const showSteps = location.state?.fromCart;
 
-  const [shippingAddress, setShippingAddress] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    addressLine1: '',
-    addressLine2: '',
-    city: '',
-    state: '',
-    postalCode: ''
-  });
+  const [shippingAddress, setShippingAddress] = useState(() => ({
+    name: user?.name || '',
+    email: user?.email || '',
+    phone: user?.phone || '',
+    addressLine1: user?.addresses?.[0]?.addressLine1 || '',
+    addressLine2: user?.addresses?.[0]?.addressLine2 || '',
+    city: user?.addresses?.[0]?.city || '',
+    state: user?.addresses?.[0]?.state || '',
+    postalCode: user?.addresses?.[0]?.postalCode || ''
+  }));
   
+  const [prevUser, setPrevUser] = useState(user);
+  if (user && user !== prevUser) {
+    setPrevUser(user);
+    setShippingAddress({
+      name: user.name || '',
+      email: user.email || '',
+      phone: user.phone || '',
+      addressLine1: user.addresses?.[0]?.addressLine1 || '',
+      addressLine2: user.addresses?.[0]?.addressLine2 || '',
+      city: user.addresses?.[0]?.city || '',
+      state: user.addresses?.[0]?.state || '',
+      postalCode: user.addresses?.[0]?.postalCode || ''
+    });
+  }
+
   const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
@@ -72,20 +88,8 @@ const CheckoutPage = () => {
       navigate('/login?redirect=checkout');
     } else if (cartItems.length === 0) {
       navigate('/cart');
-    } else if (user) {
-      // Pre-fill user data
-      setShippingAddress({
-        name: user.name || '',
-        email: user.email || '',
-        phone: user.phone || '',
-        addressLine1: user.addresses?.[0]?.addressLine1 || '',
-        addressLine2: user.addresses?.[0]?.addressLine2 || '',
-        city: user.addresses?.[0]?.city || '',
-        state: user.addresses?.[0]?.state || '',
-        postalCode: user.addresses?.[0]?.postalCode || ''
-      });
     }
-  }, [authLoading, isAuthenticated, user, cartItems.length, navigate]);
+  }, [authLoading, isAuthenticated, cartItems.length, navigate]);
 
   const handleChange = (e) => {
     setShippingAddress({ ...shippingAddress, [e.target.name]: e.target.value });
@@ -238,7 +242,15 @@ const CheckoutPage = () => {
     }
   };
 
-  if (authLoading || cartItems.length === 0) return null;
+  if (authLoading) {
+    return (
+      <PageSkeleton loading={true} statusText="Initializing checkout, please wait...">
+        <CheckoutSkeleton />
+      </PageSkeleton>
+    );
+  }
+
+  if (cartItems.length === 0) return null;
 
   return (
     <>

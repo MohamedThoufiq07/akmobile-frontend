@@ -3,10 +3,10 @@ import { Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { FiHeart, FiSearch, FiShoppingCart } from 'react-icons/fi';
 import api from '../utils/api';
-import { useWishlist } from '../context/WishlistContext';
-import { useCart } from '../context/CartContext';
+import { useWishlist } from '../context/useWishlist';
+import { useCart } from '../context/useCart';
 import { formatPrice } from '../utils/formatPrice';
-import LoadingSpinner from '../components/ui/LoadingSpinner';
+import { WishlistSkeleton, PageSkeleton } from '../components/ui/skeleton';
 import { Reveal, RevealStagger, RevealItem } from '../components/ui/animations';
 import { getValidImageUrl } from '../utils/imageHelper';
 
@@ -17,36 +17,43 @@ const WishlistPage = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let ignore = false;
     const fetchWishlistProducts = async () => {
       if (!wishlist || wishlist.length === 0) {
-        setProducts([]);
-        setLoading(false);
+        if (!ignore) {
+          setProducts([]);
+          setLoading(false);
+        }
         return;
       }
 
       try {
-        setLoading(true);
         // Extract IDs based on whether wishlist contains objects or plain strings
         const productIds = wishlist.map(item => typeof item === 'object' ? item._id : item);
         
-        // This would ideally be a single API call to fetch multiple products by ID
-        // For now, we'll fetch them individually (in a real app, optimize this backend endpoint)
         const promises = productIds.map(id => api.get(`/products/${id}`).catch(() => null));
         const results = await Promise.all(promises);
         
-        const validProducts = results
-          .filter(res => res && res.data)
-          .map(res => res.data.product);
-          
-        setProducts(validProducts);
+        if (!ignore) {
+          const validProducts = results
+            .filter(res => res && res.data)
+            .map(res => res.data.product);
+
+          setProducts(validProducts);
+          setLoading(false);
+        }
       } catch (error) {
-        console.error('Error fetching wishlist products:', error);
-      } finally {
-        setLoading(false);
+        if (!ignore) {
+          console.error('Error fetching wishlist products:', error);
+          setLoading(false);
+        }
       }
     };
 
     fetchWishlistProducts();
+    return () => {
+      ignore = true;
+    };
   }, [wishlist]);
 
   const handleAddToCart = (product) => {
@@ -71,7 +78,9 @@ const WishlistPage = () => {
           </Reveal>
 
           {loading ? (
-            <LoadingSpinner />
+            <PageSkeleton loading={true} statusText="Loading wishlist...">
+              <WishlistSkeleton />
+            </PageSkeleton>
           ) : products.length === 0 ? (
             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-8 sm:p-12 text-center">
               <div className="w-24 h-24 bg-slate-50 text-slate-300 rounded-full flex items-center justify-center mx-auto mb-6">

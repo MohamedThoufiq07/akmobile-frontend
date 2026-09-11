@@ -1,16 +1,14 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { motion } from 'framer-motion';
 import { 
   FiMapPin, FiPhone, FiMail, FiClock, FiSend, 
-  FiCheckCircle, FiMessageSquare, FiNavigation, FiShield, FiHeadphones, FiUsers 
+  FiMessageSquare, FiShield, FiHeadphones, FiUsers
 } from 'react-icons/fi';
 import { FaWhatsapp } from 'react-icons/fa';
 import toast from 'react-hot-toast';
 import api from '../utils/api';
-import { useCart } from '../context/CartContext';
-import { useWishlist } from '../context/WishlistContext';
-import { Reveal, RevealStagger, RevealItem } from '../components/ui/animations';
+import { Reveal } from '../components/ui/animations';
 import logo from '../assets/logo_dark_text.png';
 
 const ContactPage = () => {

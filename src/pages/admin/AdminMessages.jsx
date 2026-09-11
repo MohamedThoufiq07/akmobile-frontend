@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { FiMail } from 'react-icons/fi';
 import toast from 'react-hot-toast';
 import adminApi from '../../utils/adminApi';
-import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { RevealStagger, RevealItem } from '../../components/ui/animations';
+import { AdminMessagesSkeleton, PageSkeleton } from '../../components/ui/skeleton';
 
 const AdminMessages = () => {
   const [messages, setMessages] = useState([]);
@@ -12,23 +12,35 @@ const AdminMessages = () => {
   const [pages, setPages] = useState(1);
   const [total, setTotal] = useState(0);
 
-  const fetchMessages = useCallback(async () => {
-    setLoading(true);
-    try {
-      const { data } = await adminApi.get(`/contact?page=${page}&limit=15`);
-      setMessages(data.messages || []);
-      setPages(data.pages || 1);
-      setTotal(data.total || 0);
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to load messages');
-    } finally {
-      setLoading(false);
-    }
+  useEffect(() => {
+    let ignore = false;
+    adminApi.get(`/contact?page=${page}&limit=15`)
+      .then(({ data }) => {
+        if (!ignore) {
+          setMessages(data.messages || []);
+          setPages(data.pages || 1);
+          setTotal(data.total || 0);
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (!ignore) {
+          toast.error(err.response?.data?.message || 'Failed to load messages');
+          setLoading(false);
+        }
+      });
+    return () => {
+      ignore = true;
+    };
   }, [page]);
 
-  useEffect(() => { fetchMessages(); }, [fetchMessages]);
-
-  if (loading) return <div className="py-20"><LoadingSpinner /></div>;
+  if (loading) {
+    return (
+      <PageSkeleton label="Loading messages">
+        <AdminMessagesSkeleton count={4} />
+      </PageSkeleton>
+    );
+  }
 
   return (
     <>

@@ -1,13 +1,13 @@
 import { memo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { FiHeart, FiShoppingCart, FiZap } from 'react-icons/fi';
+import { FiHeart, FiShoppingCart } from 'react-icons/fi';
 import { FaHeart } from 'react-icons/fa';
-import { useCart } from '../../context/CartContext';
-import { useWishlist } from '../../context/WishlistContext';
+import { useCart } from '../../context/useCart';
+import { useWishlist } from '../../context/useWishlist';
 import { formatPrice } from '../../utils/formatPrice';
 import RatingStars from './RatingStars';
 
-import { getValidImageUrl } from '../../utils/imageHelper';
+import { getPrimaryProductImageUrl } from '../../utils/imageHelper';
 
 // Brand accent colors for card borders & pills
 const BRAND_ACCENT = {
@@ -102,9 +102,9 @@ const ProductCard = ({ product }) => {
       </button>
 
       {/* Product Image */}
-      <Link to={`/products/${product._id}`} className="block relative pt-[100%] overflow-hidden bg-gradient-to-b from-slate-50 to-white">
+      <Link to={`/products/${product._id || product.id}`} className="block relative pt-[100%] overflow-hidden bg-gradient-to-b from-slate-50 to-white">
         <img
-          src={getValidImageUrl(product.images?.[0]?.url, product.name)}
+          src={getPrimaryProductImageUrl(product)}
           alt={product.name}
           className="absolute top-0 left-0 w-full h-full object-contain p-4 transition-transform duration-500 group-hover:scale-110"
           loading="lazy"

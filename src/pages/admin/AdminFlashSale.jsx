@@ -3,8 +3,8 @@ import { FiZap, FiSearch, FiSave } from 'react-icons/fi';
 import toast from 'react-hot-toast';
 import adminApi from '../../utils/adminApi';
 import { formatPrice } from '../../utils/formatPrice';
-import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { Reveal } from '../../components/ui/animations';
+import { TableSkeleton, PageSkeleton } from '../../components/ui/skeleton';
 
 // ISO date -> value for <input type="datetime-local">
 const toLocalInput = (iso) => {
@@ -93,7 +93,13 @@ const AdminFlashSale = () => {
     }
   };
 
-  if (loading) return <div className="py-20"><LoadingSpinner /></div>;
+  if (loading) {
+    return (
+      <PageSkeleton label="Loading flash sale manager">
+        <TableSkeleton rows={8} cols={4} />
+      </PageSkeleton>
+    );
+  }
 
   return (
     <div className="space-y-6">

@@ -1,12 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   FiImage, FiPlus, FiTrash2, FiEdit2, FiSave, FiEye, FiEyeOff,
-  FiArrowUp, FiArrowDown, FiUpload, FiLink, FiCheck, FiX, FiRefreshCw
+  FiArrowUp, FiArrowDown, FiUpload, FiLink, FiX, FiRefreshCw
 } from 'react-icons/fi';
 import toast from 'react-hot-toast';
 import adminApi from '../../utils/adminApi';
-import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { Reveal, RevealStagger, RevealItem } from '../../components/ui/animations';
+import { AdminBannersSkeleton, PageSkeleton } from '../../components/ui/skeleton';
 import bannerSmartphones from '../../assets/banners/banner-smartphones.png';
 import bannerLaptops from '../../assets/banners/banner-laptops.png';
 import bannerAccessories from '../../assets/banners/banner-accessories.png';
@@ -27,6 +27,13 @@ const PREDEFINED_LINKS = [
   { label: 'Smart Watches', url: '/products?category=Smart%20Watches' },
 ];
 
+const generateBannerId = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `banner-${crypto.randomUUID()}`;
+  }
+  return `banner-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+};
+
 const AdminBanners = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -44,28 +51,32 @@ const AdminBanners = () => {
     active: true,
   });
 
-  useEffect(() => {
-    fetchBanners();
-  }, []);
 
-  const fetchBanners = async () => {
-    setLoading(true);
-    try {
-      const { data } = await adminApi.get('/settings');
-      const savedBanners = data.settings?.banners;
-      if (Array.isArray(savedBanners) && savedBanners.length > 0) {
-        setBanners(savedBanners);
-      } else {
-        // Fallback to default preset slides if none configured yet
-        setBanners(DEFAULT_BANNER_PRESETS);
-      }
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to load banners configuration');
-      setBanners(DEFAULT_BANNER_PRESETS);
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => {
+    let ignore = false;
+    adminApi.get('/settings')
+      .then(({ data }) => {
+        if (!ignore) {
+          const savedBanners = data.settings?.banners;
+          if (Array.isArray(savedBanners) && savedBanners.length > 0) {
+            setBanners(savedBanners);
+          } else {
+            setBanners(DEFAULT_BANNER_PRESETS);
+          }
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (!ignore) {
+          toast.error(err.response?.data?.message || 'Failed to load banners configuration');
+          setBanners(DEFAULT_BANNER_PRESETS);
+          setLoading(false);
+        }
+      });
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   const saveBannersToBackend = async (newList) => {
     setSaving(true);
@@ -83,7 +94,7 @@ const AdminBanners = () => {
   const handleOpenAddModal = () => {
     setEditingBanner(null);
     setForm({
-      id: `banner-${Date.now()}`,
+      id: generateBannerId(),
       title: '',
       image: '',
       link: '/products',
@@ -95,7 +106,7 @@ const AdminBanners = () => {
   const handleOpenEditModal = (banner) => {
     setEditingBanner(banner);
     setForm({
-      id: banner.id || banner._id || `banner-${Date.now()}`,
+      id: banner.id || banner._id || generateBannerId(),
       title: banner.title || banner.alt || '',
       image: banner.image || '',
       link: banner.link || '/products',
@@ -192,7 +203,13 @@ const AdminBanners = () => {
     }
   };
 
-  if (loading) return <div className="py-20"><LoadingSpinner /></div>;
+  if (loading) {
+    return (
+      <PageSkeleton label="Loading banners manager">
+        <AdminBannersSkeleton count={4} />
+      </PageSkeleton>
+    );
+  }
 
   const activeCount = banners.filter((b) => b.active !== false).length;
 

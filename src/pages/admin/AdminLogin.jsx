@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { FiMail, FiLock, FiEye, FiEyeOff, FiShield } from 'react-icons/fi';
 import toast from 'react-hot-toast';
-import { useAdminAuth } from '../../context/AdminAuthContext';
+import { useAdminAuth } from '../../context/useAdminAuth';
 import { Reveal } from '../../components/ui/animations';
 
 const AdminLogin = () => {
