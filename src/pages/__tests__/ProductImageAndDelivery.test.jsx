@@ -244,7 +244,21 @@ describe('Product Image & Delivery Charge Suite', () => {
       expect(screen.getByText(/Enter 0 for free delivery/i)).toBeTruthy();
     });
 
-    it('loads existing images with primary badge for editing product', () => {
+    it('enforces maximum 5 product images limit in header and subtitle', () => {
+      render(
+        <ProductFormModal
+          isOpen={true}
+          onClose={vi.fn()}
+          onSaved={vi.fn()}
+          product={null}
+        />
+      );
+
+      expect(screen.getByText(/Product Images \(0\/5\)/i)).toBeTruthy();
+      expect(screen.getAllByText(/Select up to 5 more images/i).length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('loads existing images with primary badge for editing product and shows 2/5 count', () => {
       const existingProduct = {
         id: 'p-edit-1',
         _id: 'p-edit-1',
@@ -270,9 +284,42 @@ describe('Product Image & Delivery Charge Suite', () => {
         />
       );
 
+      expect(screen.getByText(/Product Images \(2\/5\)/i)).toBeTruthy();
+      expect(screen.getAllByText(/Select up to 3 more images/i).length).toBeGreaterThanOrEqual(1);
       expect(screen.getByText('pixel-front.webp')).toBeTruthy();
       expect(screen.getByText('pixel-back.webp')).toBeTruthy();
       expect(screen.getByText('Primary')).toBeTruthy();
+    });
+
+    it('disables upload dropzone when 5 images are loaded', () => {
+      const fiveImagesProduct = {
+        id: 'p-edit-5',
+        _id: 'p-edit-5',
+        name: 'Max Image Phone',
+        brand: 'Apple',
+        category: 'Smartphones',
+        offerPrice: 99999,
+        stock: 10,
+        images: [
+          { id: '1', url: 'https://blob.vercel.com/1.jpg', isPrimary: true },
+          { id: '2', url: 'https://blob.vercel.com/2.jpg', isPrimary: false },
+          { id: '3', url: 'https://blob.vercel.com/3.jpg', isPrimary: false },
+          { id: '4', url: 'https://blob.vercel.com/4.jpg', isPrimary: false },
+          { id: '5', url: 'https://blob.vercel.com/5.jpg', isPrimary: false },
+        ],
+      };
+
+      render(
+        <ProductFormModal
+          isOpen={true}
+          onClose={vi.fn()}
+          onSaved={vi.fn()}
+          product={fiveImagesProduct}
+        />
+      );
+
+      expect(screen.getByText(/Product Images \(5\/5\)/i)).toBeTruthy();
+      expect(screen.getAllByText(/Maximum 5 product images reached/i).length).toBeGreaterThanOrEqual(1);
     });
 
     it('reorders images and moves primary to first position when Set as Primary is clicked', async () => {
@@ -309,7 +356,7 @@ describe('Product Image & Delivery Charge Suite', () => {
       expect(screen.getByText('img2.webp')).toBeTruthy();
     });
 
-    it('allows removing an image from the list', async () => {
+    it('allows removing an image from the list and frees up an image slot', async () => {
       const existingProduct = {
         id: 'p-edit-3',
         _id: 'p-edit-3',
@@ -342,6 +389,7 @@ describe('Product Image & Delivery Charge Suite', () => {
 
       await waitFor(() => {
         expect(screen.queryByText('img2.webp')).toBeNull();
+        expect(screen.getByText(/Product Images \(1\/5\)/i)).toBeTruthy();
       });
     });
 
@@ -374,6 +422,7 @@ describe('Product Image & Delivery Charge Suite', () => {
       );
 
       const submitBtn = screen.getByRole('button', { name: /Save Changes/i });
+      expect(submitBtn.disabled).toBe(false);
       fireEvent.click(submitBtn);
 
       await waitFor(() => {

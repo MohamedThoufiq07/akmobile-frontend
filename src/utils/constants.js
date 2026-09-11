@@ -87,3 +87,12 @@ export const STATUS_COLORS = {
 
 export const SHIPPING_THRESHOLD = 999;
 export const SHIPPING_CHARGE = 49;
+
+export const MIN_PRODUCT_IMAGES = 1;
+export const MAX_PRODUCT_IMAGES = 5;
+export const MAX_PRODUCT_IMAGE_BYTES = 5 * 1024 * 1024;
+export const ACCEPTED_PRODUCT_IMAGE_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+];

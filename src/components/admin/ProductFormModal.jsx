@@ -1,9 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { FiX, FiTrash2, FiUploadCloud, FiStar, FiArrowUp, FiArrowDown, FiAlertCircle, FiCheckCircle } from 'react-icons/fi';
+import { FiX, FiTrash2, FiUploadCloud, FiStar, FiArrowUp, FiArrowDown, FiAlertCircle, FiCheckCircle, FiRefreshCw } from 'react-icons/fi';
 import toast from 'react-hot-toast';
 import axios from 'axios';
 import adminApi from '../../utils/adminApi';
-import { BRANDS, CATEGORIES } from '../../utils/constants';
+import {
+  MIN_PRODUCT_IMAGES,
+  MAX_PRODUCT_IMAGES,
+  MAX_PRODUCT_IMAGE_BYTES,
+  ACCEPTED_PRODUCT_IMAGE_TYPES,
+  BRANDS,
+  CATEGORIES,
+} from '../../utils/constants';
 import { getPlaceholderSvg } from '../../utils/imageHelper';
 
 const SPEC_FIELDS = [
@@ -12,15 +19,25 @@ const SPEC_FIELDS = [
   ['os', 'OS'], ['connectivity', 'Connectivity'], ['weight', 'Weight'], ['colors', 'Colors'],
 ];
 
-const MAX_IMAGES = 10;
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
-
 const formatFileSize = (bytes) => {
   if (!bytes || bytes === 0) return '0 B';
   const k = 1024;
   const sizes = ['B', 'KB', 'MB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+};
+
+const recalculatePrimary = (images) => {
+  const readyImages = images.filter((img) => img.status === 'ready');
+  if (readyImages.length === 0) {
+    return images.map((img) => ({ ...img, isPrimary: false }));
+  }
+  const existingReadyPrimary = readyImages.find((img) => img.isPrimary);
+  const primaryId = existingReadyPrimary ? existingReadyPrimary.id : readyImages[0].id;
+  return images.map((img) => ({
+    ...img,
+    isPrimary: img.id === primaryId && img.status === 'ready',
+  }));
 };
 
 const blankFromProduct = (p) => {
@@ -44,7 +61,9 @@ const blankFromProduct = (p) => {
       filename: img.filename || nameFromUrl || img.altText || img.alt || `image-${idx + 1}.jpg`,
       fileSize: img.fileSize || 0,
       previewUrl: url || '',
-      status: 'ready', // 'pending' | 'validating' | 'uploading' | 'verifying' | 'ready' | 'failed'
+      file: null,
+      sortOrder: idx,
+      status: 'ready', // 'pending' | 'validating' | 'authorizing' | 'uploading' | 'verifying' | 'ready' | 'failed'
       progress: 100,
       errorMessage: '',
       isPrimary,
@@ -65,14 +84,14 @@ const blankFromProduct = (p) => {
     flashSale: p?.flashSale || false,
     highlights: (p?.highlights || []).join('\n'),
     specs: SPEC_FIELDS.reduce((acc, [k]) => ({ ...acc, [k]: p?.specifications?.[k] || '' }), {}),
-    images: existingImages,
+    images: recalculatePrimary(existingImages),
   };
 };
 
 const inputCls = 'w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue';
 const labelCls = 'block text-xs font-semibold text-slate-600 mb-1';
 
-const ProductFormModal = ({ product, onClose, onSaved }) => {
+const ProductFormModal = ({ product, isOpen = true, onClose, onSaved }) => {
   const isEdit = Boolean(product?._id || product?.id);
   const [form, setForm] = useState(() => blankFromProduct(product));
   const [saving, setSaving] = useState(false);
@@ -81,6 +100,7 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
   const fileInputRef = useRef(null);
   const sessionTokenRef = useRef(null);
   const abortControllersRef = useRef(new Map());
+  const previewUrlsRef = useRef(new Set());
 
   const set = (key, value) => {
     setIsDirty(true);
@@ -92,43 +112,81 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
     setForm((f) => ({ ...f, specs: { ...f.specs, [key]: value } }));
   };
 
-  // Obtain or reuse upload session
-  const getUploadSession = useCallback(async () => {
-    if (sessionTokenRef.current) return sessionTokenRef.current;
-    try {
-      const { data } = await adminApi.post('/products/upload-session', {
-        productId: product?._id,
-      });
-      if (data.token) {
-        sessionTokenRef.current = data.token;
-        return data.token;
+  const updateImageItem = useCallback((id, updates) => {
+    setForm((prev) => {
+      const updated = prev.images.map((img) =>
+        img.id === id ? { ...img, ...updates } : img
+      );
+      return {
+        ...prev,
+        images: recalculatePrimary(updated),
+      };
+    });
+  }, []);
+
+  const cancelAllImageOperations = useCallback(({ silent = true } = {}) => {
+    abortControllersRef.current.forEach((controller) => {
+      if (!controller.signal.aborted) {
+        controller.abort();
       }
-    } catch {
-      // Fallback
+    });
+    abortControllersRef.current.clear();
+    if (!silent) {
+      toast.error('Active upload operations cancelled.');
     }
-    return null;
-  }, [product]);
+  }, []);
 
-  // Clean up object URLs and abort controllers on unmount
+  const revokeAllPreviewUrls = useCallback(() => {
+    previewUrlsRef.current.forEach((url) => {
+      try {
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        void err;
+      }
+    });
+    previewUrlsRef.current.clear();
+  }, []);
+
+  const handleClose = useCallback(() => {
+    cancelAllImageOperations({ silent: true });
+    revokeAllPreviewUrls();
+    if (onClose) onClose();
+  }, [cancelAllImageOperations, revokeAllPreviewUrls, onClose]);
+
+  // Unmount cleanup
   useEffect(() => {
-    const activeControllers = abortControllersRef.current;
-    const imagesToClean = form.images;
     return () => {
-      activeControllers.forEach((controller) => controller.abort());
-      activeControllers.clear();
-      imagesToClean.forEach((img) => {
-        if (img.previewUrl && img.isNew && img.previewUrl.startsWith('blob:')) {
-          URL.revokeObjectURL(img.previewUrl);
-        }
-      });
+      cancelAllImageOperations({ silent: true });
+      revokeAllPreviewUrls();
     };
-  }, [form.images]);
+  }, [cancelAllImageOperations, revokeAllPreviewUrls]);
 
-  // Warn before leaving if unsaved changes exist
+  // Modal close detection
+  useEffect(() => {
+    if (isOpen === false) {
+      cancelAllImageOperations({ silent: true });
+      revokeAllPreviewUrls();
+    }
+  }, [isOpen, cancelAllImageOperations, revokeAllPreviewUrls]);
+
+  // Escape key handler
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        handleClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleClose]);
+
+  // Before unload warning
   useEffect(() => {
     const handleBeforeUnload = (e) => {
-      const hasUploading = form.images.some((i) => ['validating', 'uploading', 'verifying'].includes(i.status));
-      if (isDirty || hasUploading) {
+      const hasInFlight = form.images.some((i) =>
+        ['validating', 'authorizing', 'uploading', 'verifying'].includes(i.status)
+      );
+      if (isDirty || hasInFlight) {
         e.preventDefault();
         e.returnValue = '';
       }
@@ -137,29 +195,141 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isDirty, form.images]);
 
-  // Upload single file through direct-to-storage + finalize pipeline
+  // Upload session helper
+  const getUploadSession = useCallback(async (signal) => {
+    if (sessionTokenRef.current) return sessionTokenRef.current;
+    try {
+      const { data } = await adminApi.post('/products/upload-session', {
+        productId: product?._id,
+      }, { signal, timeout: 15000 });
+      if (data.token) {
+        sessionTokenRef.current = data.token;
+        return data.token;
+      }
+    } catch (err) {
+      if (axios.isCancel(err) || err.name === 'AbortError' || err.name === 'CanceledError') {
+        throw err;
+      }
+    }
+    return null;
+  }, [product]);
+
+  // Client-side image validation with 10s timeout
+  const validateClientFile = useCallback((file, signal) => {
+    if (!file) {
+      return Promise.reject(new Error('No file provided.'));
+    }
+    if (file.size <= 0) {
+      return Promise.reject(new Error('File is empty.'));
+    }
+    if (file.size > MAX_PRODUCT_IMAGE_BYTES) {
+      return Promise.reject(new Error(`File size (${formatFileSize(file.size)}) exceeds 5MB limit.`));
+    }
+
+    return new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        return reject(new DOMException('Aborted', 'AbortError'));
+      }
+
+      let settled = false;
+      let timer = null;
+      let validationUrl = '';
+
+      const cleanup = () => {
+        settled = true;
+        if (timer) clearTimeout(timer);
+        if (validationUrl) {
+          URL.revokeObjectURL(validationUrl);
+          validationUrl = '';
+        }
+      };
+
+      timer = setTimeout(() => {
+        if (!settled) {
+          cleanup();
+          reject(new Error('Image validation timed out after 10 seconds.'));
+        }
+      }, 10000);
+
+      if (signal) {
+        signal.addEventListener('abort', () => {
+          if (!settled) {
+            cleanup();
+            reject(new DOMException('Aborted', 'AbortError'));
+          }
+        }, { once: true });
+      }
+
+      try {
+        validationUrl = URL.createObjectURL(file);
+        const img = new Image();
+
+        img.onload = () => {
+          if (settled) return;
+          const width = img.naturalWidth || img.width;
+          const height = img.naturalHeight || img.height;
+          cleanup();
+          if (width && height && (width < 10 || height < 10)) {
+            reject(new Error('Image dimensions too small (minimum 10x10px).'));
+          } else {
+            resolve({ width, height });
+          }
+        };
+
+        img.onerror = () => {
+          if (settled) return;
+          cleanup();
+          // Allow binary images to reach backend verification even if browser decode fails
+          resolve({ width: 0, height: 0 });
+        };
+
+        img.onabort = () => {
+          if (settled) return;
+          cleanup();
+          reject(new DOMException('Aborted', 'AbortError'));
+        };
+
+        img.src = validationUrl;
+      } catch {
+        cleanup();
+        resolve({ width: 0, height: 0 });
+      }
+    });
+  }, []);
+
+  const logTransition = (imgId, fromState, toState) => {
+    if (import.meta.env.DEV) {
+      console.log(`[${imgId}] ${fromState} → ${toState}`);
+    }
+  };
+
+  // Seven-state upload pipeline
   const uploadFile = async (imgId, file) => {
     if (!file) return;
 
     if (abortControllersRef.current.has(imgId)) {
-      abortControllersRef.current.get(imgId).abort();
+      const existing = abortControllersRef.current.get(imgId);
+      if (!existing.signal.aborted) existing.abort();
     }
     const controller = new AbortController();
     abortControllersRef.current.set(imgId, controller);
 
     try {
       // 1. Validating
-      setForm((f) => ({
-        ...f,
-        images: f.images.map((i) => (i.id === imgId ? { ...i, status: 'validating', progress: 10, errorMessage: '' } : i)),
-      }));
+      logTransition(imgId, 'selected', 'validating');
+      updateImageItem(imgId, { status: 'validating', progress: 10, errorMessage: '' });
 
-      const sessionToken = await getUploadSession();
+      await validateClientFile(file, controller.signal);
+
+      // 2. Authorizing
+      logTransition(imgId, 'validating', 'authorizing');
+      updateImageItem(imgId, { status: 'authorizing', progress: 20 });
+
+      const sessionToken = await getUploadSession(controller.signal);
       if (!sessionToken) {
         throw new Error('Unable to establish upload session. Please retry.');
       }
 
-      // 2. Authorize upload
       const authRes = await adminApi.post(
         `/products/upload-session/${sessionToken}/authorize-upload`,
         {
@@ -167,114 +337,83 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
           fileSize: file.size,
           contentType: file.type || 'application/octet-stream',
         },
-        { signal: controller.signal }
+        { signal: controller.signal, timeout: 15000 }
       );
 
       const { uploadUrl, headers: authHeaders, stagedItemId } = authRes.data;
 
-      // 3. Direct Upload to Staging Key
-      setForm((f) => ({
-        ...f,
-        images: f.images.map((i) => (i.id === imgId ? { ...i, status: 'uploading', progress: 30 } : i)),
-      }));
+      // 3. Uploading (Direct to staging)
+      logTransition(imgId, 'authorizing', 'uploading');
+      updateImageItem(imgId, { status: 'uploading', progress: 30 });
 
       const isLocalStage = uploadUrl.includes('/stage-local/');
       if (isLocalStage) {
-        // Backend development fallback endpoint
         await adminApi.put(uploadUrl, file, {
           signal: controller.signal,
+          timeout: 120000,
           headers: { 'Content-Type': 'application/octet-stream' },
           onUploadProgress: (progressEvent) => {
             if (progressEvent.total) {
-              const percent = Math.min(85, Math.round((progressEvent.loaded * 60) / progressEvent.total) + 30);
-              setForm((f) => ({
-                ...f,
-                images: f.images.map((i) => (i.id === imgId ? { ...i, progress: percent } : i)),
-              }));
+              const percent = Math.min(85, Math.round((progressEvent.loaded * 55) / progressEvent.total) + 30);
+              updateImageItem(imgId, { progress: percent });
             }
           },
         });
       } else {
-        // Direct to Vercel Blob PUT
         await axios.put(uploadUrl, file, {
           signal: controller.signal,
+          timeout: 120000,
           headers: {
             ...authHeaders,
             'Content-Type': 'application/octet-stream',
           },
           onUploadProgress: (progressEvent) => {
             if (progressEvent.total) {
-              const percent = Math.min(85, Math.round((progressEvent.loaded * 60) / progressEvent.total) + 30);
-              setForm((f) => ({
-                ...f,
-                images: f.images.map((i) => (i.id === imgId ? { ...i, progress: percent } : i)),
-              }));
+              const percent = Math.min(85, Math.round((progressEvent.loaded * 55) / progressEvent.total) + 30);
+              updateImageItem(imgId, { progress: percent });
             }
           },
         });
       }
 
-      // 4. Authoritative Verification & Promotion (Finalize)
-      setForm((f) => ({
-        ...f,
-        images: f.images.map((i) => (i.id === imgId ? { ...i, status: 'verifying', progress: 90 } : i)),
-      }));
+      // 4. Verifying
+      logTransition(imgId, 'uploading', 'verifying');
+      updateImageItem(imgId, { status: 'verifying', progress: 90 });
 
       const finalizeRes = await adminApi.post(
         `/products/upload-session/${sessionToken}/finalize-upload`,
         { stagedItemId },
-        { signal: controller.signal }
+        { signal: controller.signal, timeout: 25000 }
       );
 
       const verifiedItem = finalizeRes.data.item;
 
       // 5. Ready
-      setForm((f) => {
-        const updated = f.images.map((i) => (i.id === imgId ? {
-          ...i,
-          url: verifiedItem.url,
-          storageKey: verifiedItem.storageKey,
-          filename: verifiedItem.filename || file.name,
-          fileSize: verifiedItem.fileSize || file.size,
-          width: verifiedItem.width,
-          height: verifiedItem.height,
-          status: 'ready',
-          progress: 100,
-          errorMessage: '',
-        } : i));
-
-        // Auto-promote first ready image as primary if none exists
-        const hasReadyPrimary = updated.some((img) => img.isPrimary && img.status === 'ready');
-        if (!hasReadyPrimary) {
-          const firstReady = updated.find((img) => img.status === 'ready');
-          if (firstReady) firstReady.isPrimary = true;
-        }
-        return { ...f, images: updated };
+      logTransition(imgId, 'verifying', 'ready');
+      updateImageItem(imgId, {
+        url: verifiedItem.url,
+        storageKey: verifiedItem.storageKey,
+        filename: verifiedItem.filename || file.name,
+        fileSize: verifiedItem.fileSize || file.size,
+        status: 'ready',
+        progress: 100,
+        errorMessage: '',
       });
 
       setIsDirty(true);
       abortControllersRef.current.delete(imgId);
     } catch (err) {
-      if (axios.isCancel(err) || err.name === 'CanceledError' || err.code === 'ERR_CANCELED') {
-        // Upload was cancelled by user; do not show failure toast
+      if (axios.isCancel(err) || err.name === 'CanceledError' || err.name === 'AbortError' || controller.signal.aborted) {
+        // Cancelled cleanly
+        abortControllersRef.current.delete(imgId);
         return;
       }
 
+      logTransition(imgId, 'in-flight', 'failed');
       const errMsg = err.response?.data?.message || err.message || 'Upload failed';
-      setForm((f) => {
-        const updated = f.images.map((i) => (i.id === imgId ? {
-          ...i,
-          status: 'failed',
-          errorMessage: errMsg,
-        } : i));
-
-        // Auto-promote next ready image if this failed image was primary
-        const hasReadyPrimary = updated.some((img) => img.isPrimary && img.status === 'ready');
-        if (!hasReadyPrimary) {
-          const firstReady = updated.find((img) => img.status === 'ready');
-          if (firstReady) firstReady.isPrimary = true;
-        }
-        return { ...f, images: updated };
+      updateImageItem(imgId, {
+        status: 'failed',
+        errorMessage: errMsg,
       });
 
       toast.error(errMsg);
@@ -282,36 +421,32 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
     }
   };
 
-  // Handle file selection
-  const handleFilesSelected = (files) => {
+  const handleFilesSelected = async (files) => {
     if (!files || files.length === 0) return;
 
     const currentCount = form.images.length;
-    const remainingSlots = MAX_IMAGES - currentCount;
+    const remainingSlots = MAX_PRODUCT_IMAGES - currentCount;
 
     if (remainingSlots <= 0) {
-      toast.error(`Maximum limit of ${MAX_IMAGES} images reached.`);
+      toast.error(`Maximum limit of ${MAX_PRODUCT_IMAGES} images reached.`);
+      if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
 
-    const selectedFiles = Array.from(files).slice(0, remainingSlots);
-    if (files.length > remainingSlots) {
-      toast(`Added ${remainingSlots} images (maximum ${MAX_IMAGES} images allowed).`, { icon: 'ℹ️' });
+    const filesArr = Array.from(files);
+    if (filesArr.length > remainingSlots) {
+      toast.error(`Maximum ${MAX_PRODUCT_IMAGES} product images allowed. You can select only ${remainingSlots} more images.`);
     }
 
-    const newImageEntries = [];
+    const selectedFiles = filesArr.slice(0, remainingSlots);
+    if (fileInputRef.current) fileInputRef.current.value = '';
 
-    for (const file of selectedFiles) {
-      if (file.size > MAX_FILE_SIZE) {
-        toast.error(`"${file.name}" exceeds 5MB limit.`);
-        continue;
-      }
-
+    const newEntries = selectedFiles.map((file, idx) => {
       const tempId = `new-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
       const previewUrl = URL.createObjectURL(file);
-      const isFirstEver = currentCount === 0 && newImageEntries.length === 0;
+      previewUrlsRef.current.add(previewUrl);
 
-      const entry = {
+      return {
         id: tempId,
         url: '',
         storageKey: '',
@@ -319,39 +454,33 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
         fileSize: file.size,
         previewUrl,
         file,
+        sortOrder: currentCount + idx,
         status: 'pending',
         progress: 0,
         errorMessage: '',
-        isPrimary: isFirstEver,
+        isPrimary: currentCount === 0 && idx === 0,
         isNew: true,
       };
-
-      newImageEntries.push(entry);
-    }
-
-    if (newImageEntries.length === 0) return;
-
-    setForm((f) => {
-      const updated = [...f.images, ...newImageEntries];
-      const hasReadyPrimary = updated.some((img) => img.isPrimary && img.status === 'ready');
-      if (!hasReadyPrimary && updated.length > 0) {
-        const firstCandidate = updated.find((img) => img.status === 'ready') || updated[0];
-        if (firstCandidate) firstCandidate.isPrimary = true;
-      }
-      return { ...f, images: updated };
     });
+
+    setForm((prev) => ({
+      ...prev,
+      images: recalculatePrimary([...prev.images, ...newEntries]),
+    }));
     setIsDirty(true);
 
-    // Trigger uploads
-    newImageEntries.forEach((entry) => {
-      uploadFile(entry.id, entry.file);
-    });
+    // Process files independently
+    await Promise.allSettled(
+      newEntries.map((entry) => uploadFile(entry.id, entry.file))
+    );
   };
 
   const handleDragOver = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    setIsDragging(true);
+    if (form.images.length < MAX_PRODUCT_IMAGES) {
+      setIsDragging(true);
+    }
   };
 
   const handleDragLeave = (e) => {
@@ -364,6 +493,10 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
+    if (form.images.length >= MAX_PRODUCT_IMAGES) {
+      toast.error(`Maximum ${MAX_PRODUCT_IMAGES} product images reached.`);
+      return;
+    }
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       handleFilesSelected(e.dataTransfer.files);
     }
@@ -375,20 +508,24 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
       const target = f.images[index];
       if (target) {
         if (abortControllersRef.current.has(target.id)) {
-          abortControllersRef.current.get(target.id).abort();
+          const c = abortControllersRef.current.get(target.id);
+          if (!c.signal.aborted) c.abort();
           abortControllersRef.current.delete(target.id);
         }
-        if (target.previewUrl && target.isNew && target.previewUrl.startsWith('blob:')) {
-          URL.revokeObjectURL(target.previewUrl);
+        if (target.previewUrl && previewUrlsRef.current.has(target.previewUrl)) {
+          try {
+            URL.revokeObjectURL(target.previewUrl);
+          } catch (err) {
+            void err;
+          }
+          previewUrlsRef.current.delete(target.previewUrl);
         }
       }
-      const updated = f.images.filter((_, idx) => idx !== index);
-      const hasReadyPrimary = updated.some((img) => img.isPrimary && img.status === 'ready');
-      if (!hasReadyPrimary) {
-        const firstReady = updated.find((img) => img.status === 'ready');
-        if (firstReady) firstReady.isPrimary = true;
-      }
-      return { ...f, images: updated };
+      const updated = f.images.filter((_, idx) => idx !== index).map((img, idx) => ({
+        ...img,
+        sortOrder: idx,
+      }));
+      return { ...f, images: recalculatePrimary(updated) };
     });
   };
 
@@ -397,8 +534,10 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
     setForm((f) => {
       const selected = f.images[index];
       if (!selected || selected.status !== 'ready') return f;
-      const remaining = f.images.filter((_, idx) => idx !== index);
-      const reordered = [{ ...selected, isPrimary: true }, ...remaining.map((i) => ({ ...i, isPrimary: false }))];
+      const reordered = f.images.map((img, idx) => ({
+        ...img,
+        isPrimary: idx === index,
+      }));
       return { ...f, images: reordered };
     });
     toast.success('Primary image updated');
@@ -413,9 +552,13 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
       const temp = copy[index];
       copy[index] = copy[targetIdx];
       copy[targetIdx] = temp;
+      const reordered = copy.map((img, idx) => ({
+        ...img,
+        sortOrder: idx,
+      }));
       return {
         ...f,
-        images: copy.map((img, idx) => ({ ...img, isPrimary: idx === 0 })),
+        images: recalculatePrimary(reordered),
       };
     });
   };
@@ -426,85 +569,109 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
     }
   };
 
-  const handleModalClose = () => {
-    // Abort all in-flight requests cleanly
-    abortControllersRef.current.forEach((controller) => controller.abort());
-    abortControllersRef.current.clear();
-    // Revoke blob preview URLs
-    form.images.forEach((img) => {
-      if (img.previewUrl && img.isNew && img.previewUrl.startsWith('blob:')) {
-        URL.revokeObjectURL(img.previewUrl);
-      }
-    });
-    onClose();
-  };
-
   const original = Number(form.originalPrice) || 0;
   const offer = Number(form.offerPrice) || 0;
   const discount = original > 0 && offer <= original ? Math.round(((original - offer) / original) * 100) : 0;
   const deliveryVal = parseFloat(form.deliveryCharge);
   const validDelivery = isNaN(deliveryVal) || deliveryVal < 0 ? '49.00' : deliveryVal.toFixed(2);
 
-  // Exact submit & footer conditions
+  // Accurate counters
+  const selectedCount = form.images.length;
   const readyCount = form.images.filter((i) => i.status === 'ready').length;
   const failedCount = form.images.filter((i) => i.status === 'failed').length;
-  const inFlightCount = form.images.filter((i) => ['pending', 'validating', 'uploading', 'verifying'].includes(i.status)).length;
-  const canSubmit = readyCount >= 1 && failedCount === 0 && inFlightCount === 0 && !saving;
+  const validatingCount = form.images.filter((i) => i.status === 'validating').length;
+  const authorizingCount = form.images.filter((i) => i.status === 'authorizing').length;
+  const uploadingCount = form.images.filter((i) => i.status === 'uploading').length;
+  const verifyingCount = form.images.filter((i) => i.status === 'verifying').length;
+  const inFlightCount = form.images.filter((i) =>
+    ['pending', 'validating', 'authorizing', 'uploading', 'verifying'].includes(i.status)
+  ).length;
+
+  const isFormValid = Boolean(
+    form.name.trim() &&
+    form.brand &&
+    form.category &&
+    form.offerPrice &&
+    form.stock !== ''
+  );
+
+  const canSubmit =
+    isFormValid &&
+    readyCount >= MIN_PRODUCT_IMAGES &&
+    selectedCount <= MAX_PRODUCT_IMAGES &&
+    failedCount === 0 &&
+    inFlightCount === 0 &&
+    !saving;
+
+  const getSubmitButtonLabel = () => {
+    if (saving) return isEdit ? 'Saving Changes...' : 'Creating Product...';
+    if (validatingCount > 0) return 'Validating Photos...';
+    if (authorizingCount > 0) return 'Preparing Upload...';
+    if (uploadingCount > 0) return 'Uploading Photos...';
+    if (verifyingCount > 0) return 'Verifying Photos...';
+    return isEdit ? 'Save Changes' : 'Create Product';
+  };
+
+  const getFooterStatusText = () => {
+    if (readyCount === 0 && inFlightCount === 0 && failedCount === 0) {
+      return 'At least one product image is required';
+    }
+    const parts = [];
+    if (readyCount > 0) {
+      parts.push(`${readyCount} image${readyCount > 1 ? 's' : ''} ready`);
+    }
+    if (validatingCount > 0) {
+      parts.push(`${validatingCount} validating`);
+    }
+    if (authorizingCount > 0) {
+      parts.push(`${authorizingCount} preparing`);
+    }
+    if (uploadingCount > 0) {
+      parts.push(`${uploadingCount} uploading`);
+    }
+    if (verifyingCount > 0) {
+      parts.push(`${verifyingCount} verifying`);
+    }
+    if (failedCount > 0) {
+      parts.push(`${failedCount} failed`);
+    }
+    return parts.join(', ');
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!canSubmit) return;
-
-    if (!form.name.trim() || !form.brand.trim() || !form.category.trim()) {
-      toast.error('Name, brand and category are required.');
-      return;
-    }
-    if (original <= 0 || offer <= 0) {
-      toast.error('Please enter valid prices.');
-      return;
-    }
-    if (offer > original) {
-      toast.error('Offer price cannot be higher than the original price.');
-      return;
-    }
-
-    if (inFlightCount > 0) {
-      toast.error('Please wait for all image uploads to complete.');
+    if (!canSubmit) {
+      if (readyCount < MIN_PRODUCT_IMAGES) {
+        toast.error('Please upload at least one verified product photo.');
+      } else if (selectedCount > MAX_PRODUCT_IMAGES) {
+        toast.error(`Maximum limit is ${MAX_PRODUCT_IMAGES} images.`);
+      } else if (inFlightCount > 0) {
+        toast.error('Please wait for active photo uploads to finish.');
+      } else if (failedCount > 0) {
+        toast.error('Please retry or remove failed image uploads before saving.');
+      }
       return;
     }
 
-    if (failedCount > 0) {
-      toast.error('Some images failed to upload. Please retry or remove them.');
-      return;
-    }
-
-    if (readyCount === 0) {
-      toast.error('At least one product image is required.');
-      return;
-    }
-
-    // Build payload images list from verified ready images only
-    const preparedImages = form.images
-      .filter((img) => img.status === 'ready' && img.url)
-      .map((img, idx) => ({
-        id: img.isNew ? undefined : img.id,
-        url: img.url,
-        storageKey: img.storageKey,
-        altText: form.name.trim(),
-        sortOrder: idx,
-        isPrimary: idx === 0,
-      }));
+    const readyImages = form.images.filter((img) => img.status === 'ready');
+    const preparedImages = readyImages.map((img, idx) => ({
+      id: img.isNew ? undefined : img.id,
+      url: img.url,
+      storageKey: img.storageKey,
+      altText: img.filename || `${form.name} photo ${idx + 1}`,
+      isPrimary: Boolean(img.isPrimary),
+      sortOrder: idx,
+    }));
 
     const payload = {
       name: form.name.trim(),
-      brand: form.brand.trim(),
-      category: form.category.trim(),
+      brand: form.brand,
+      category: form.category,
       description: form.description.trim(),
       originalPrice: original,
       offerPrice: offer,
       deliveryCharge: validDelivery,
-      stock: Number(form.stock) || 0,
-      discount,
+      stock: parseInt(form.stock, 10) || 0,
       isFeatured: form.isFeatured,
       flashSale: form.flashSale,
       highlights: form.highlights.split('\n').map((h) => h.trim()).filter(Boolean),
@@ -523,7 +690,8 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
         toast.success('Product created successfully');
       }
       setIsDirty(false);
-      onSaved();
+      handleClose();
+      if (onSaved) onSaved();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to save product');
     } finally {
@@ -532,7 +700,7 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[80] bg-black/50 flex items-center justify-center p-4" onClick={handleModalClose}>
+    <div className="fixed inset-0 z-[80] bg-black/50 flex items-center justify-center p-4" onClick={handleClose}>
       <div
         className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl"
         onClick={(e) => e.stopPropagation()}
@@ -543,7 +711,7 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
             <h2 className="text-lg font-bold text-slate-900">{isEdit ? 'Edit Product' : 'Add Product'}</h2>
             <p className="text-xs text-slate-500">Enter product details, upload photos, and set delivery charge</p>
           </div>
-          <button onClick={handleModalClose} className="p-2 hover:bg-slate-100 rounded-full text-slate-500"><FiX size={20} /></button>
+          <button onClick={handleClose} className="p-2 hover:bg-slate-100 rounded-full text-slate-500"><FiX size={20} /></button>
         </div>
 
         {/* Body */}
@@ -627,9 +795,13 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div>
-                <label className="block text-sm font-bold text-slate-800">Product Images ({form.images.length}/{MAX_IMAGES})</label>
+                <label className="block text-sm font-bold text-slate-800">
+                  Product Images ({selectedCount}/{MAX_PRODUCT_IMAGES})
+                </label>
                 <p className="text-xs text-slate-500">
-                  Drag &amp; drop or select multiple photos (front, back, sides, box). The 1st ready image is the primary image.
+                  {MAX_PRODUCT_IMAGES - selectedCount > 0
+                    ? `Select up to ${MAX_PRODUCT_IMAGES - selectedCount} more images`
+                    : `Maximum ${MAX_PRODUCT_IMAGES} product images reached`}
                 </p>
               </div>
               <span className="text-[11px] font-semibold text-slate-400 bg-slate-100 px-2.5 py-1 rounded-full">
@@ -642,227 +814,256 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
-              onClick={() => fileInputRef.current?.click()}
-              className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all duration-200 ${
-                isDragging
-                  ? 'border-brand-blue bg-blue-50/50 scale-[0.99]'
-                  : form.images.length >= MAX_IMAGES
+              onClick={() => {
+                if (selectedCount < MAX_PRODUCT_IMAGES) {
+                  fileInputRef.current?.click();
+                }
+              }}
+              className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all duration-200 ${
+                selectedCount >= MAX_PRODUCT_IMAGES
                   ? 'border-slate-200 bg-slate-50 opacity-60 cursor-not-allowed'
-                  : 'border-slate-200 hover:border-brand-blue hover:bg-slate-50/60'
+                  : isDragging
+                  ? 'border-brand-blue bg-blue-50/50 scale-[0.99] cursor-pointer'
+                  : 'border-slate-200 hover:border-brand-blue hover:bg-slate-50/60 cursor-pointer'
               }`}
             >
               <input
                 ref={fileInputRef}
                 type="file"
                 multiple
-                accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                accept={ACCEPTED_PRODUCT_IMAGE_TYPES.join(',')}
                 className="hidden"
-                disabled={form.images.length >= MAX_IMAGES}
-                onChange={(e) => {
-                  handleFilesSelected(e.target.files);
-                  e.target.value = '';
-                }}
+                disabled={selectedCount >= MAX_PRODUCT_IMAGES}
+                onChange={(e) => handleFilesSelected(e.target.files)}
               />
-              <div className="w-12 h-12 rounded-full bg-pink-50 text-brand-pink flex items-center justify-center mx-auto mb-2">
-                <FiUploadCloud size={24} />
+              <div className="flex flex-col items-center gap-2">
+                <div className="w-12 h-12 rounded-full bg-blue-50 text-brand-blue flex items-center justify-center">
+                  <FiUploadCloud size={24} />
+                </div>
+                <p className="text-sm font-semibold text-slate-700">
+                  {selectedCount >= MAX_PRODUCT_IMAGES
+                    ? `Maximum ${MAX_PRODUCT_IMAGES} product images reached`
+                    : 'Drag & drop product photos here, or Browse Files'}
+                </p>
+                <p className="text-xs text-slate-400">
+                  {selectedCount >= MAX_PRODUCT_IMAGES
+                    ? 'Remove an image below to add a replacement'
+                    : `Select up to ${MAX_PRODUCT_IMAGES - selectedCount} more images`}
+                </p>
               </div>
-              <p className="text-sm font-semibold text-slate-700">
-                Drag &amp; drop product photos here, or <span className="text-brand-pink underline">Browse Files</span>
-              </p>
-              <p className="text-xs text-slate-400 mt-1">
-                {form.images.length >= MAX_IMAGES
-                  ? `Limit of ${MAX_IMAGES} images reached`
-                  : `Select up to ${MAX_IMAGES - form.images.length} more images`}
-              </p>
             </div>
 
-            {/* Images List */}
+            {/* Selected Images List */}
             {form.images.length > 0 && (
               <div className="space-y-2 mt-4">
-                {form.images.map((img, idx) => {
-                  const isPrimary = Boolean(img.isPrimary && img.status === 'ready');
-                  return (
-                    <div
-                      key={img.id}
-                      className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
-                        isPrimary
-                          ? 'border-pink-300 bg-pink-50/30 shadow-sm ring-1 ring-pink-300'
-                          : 'border-slate-200 bg-white hover:border-slate-300'
-                      }`}
-                    >
-                      {/* Image Thumbnail Preview */}
-                      <div className="relative w-14 h-14 rounded-lg bg-slate-100 border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center">
-                        <img
-                          src={img.previewUrl || getPlaceholderSvg(img.filename)}
-                          alt={img.filename}
-                          className="w-full h-full object-contain"
-                          onError={(e) => {
-                            e.target.src = getPlaceholderSvg(img.filename);
-                          }}
-                        />
-                        {isPrimary && (
-                          <div className="absolute top-1 left-1 bg-brand-pink text-white rounded-full p-0.5 shadow-sm" title="Primary image">
-                            <FiStar size={10} className="fill-current" />
-                          </div>
+                {form.images.map((img, idx) => (
+                  <div
+                    key={img.id}
+                    className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
+                      img.status === 'failed'
+                        ? 'border-rose-200 bg-rose-50/40'
+                        : img.isPrimary
+                        ? 'border-blue-200 bg-blue-50/30 ring-1 ring-blue-100'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    {/* Thumbnail Preview */}
+                    <div className="relative w-14 h-14 rounded-lg overflow-hidden bg-slate-100 shrink-0 border border-slate-200 flex items-center justify-center">
+                      <img
+                        src={img.previewUrl || img.url || getPlaceholderSvg(48, 48, 'Photo')}
+                        alt={img.filename}
+                        className="w-full h-full object-contain"
+                        onError={(e) => {
+                          e.target.onerror = null;
+                          e.target.src = getPlaceholderSvg(48, 48, 'Photo');
+                        }}
+                      />
+                      {img.isPrimary && (
+                        <span className="absolute bottom-0 left-0 right-0 bg-brand-blue text-[9px] text-white font-bold py-0.5 text-center tracking-wider uppercase">
+                          Primary
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Metadata & Progress Status */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-slate-800 truncate max-w-[200px]" title={img.filename}>
+                          {img.filename}
+                        </span>
+                        {img.fileSize > 0 && (
+                          <span className="text-[10px] text-slate-400 shrink-0">
+                            {formatFileSize(img.fileSize)}
+                          </span>
                         )}
                       </div>
 
-                      {/* Image Metadata & Status */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="text-xs font-bold text-slate-800 truncate" title={img.filename}>
-                            {img.filename}
-                          </p>
-                          {isPrimary && (
-                            <span className="text-[10px] font-bold uppercase bg-pink-100 text-brand-pink px-1.5 py-0.5 rounded">
-                              Primary
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-500">
-                          <span>{formatFileSize(img.fileSize)}</span>
-                          <span>•</span>
-                          {img.status === 'validating' && (
-                            <span className="text-amber-600 font-medium">Validating...</span>
-                          )}
-                          {img.status === 'uploading' && (
-                            <span className="text-blue-600 font-medium">Uploading... {img.progress}%</span>
-                          )}
-                          {img.status === 'verifying' && (
-                            <span className="text-indigo-600 font-medium">Verifying...</span>
-                          )}
-                          {img.status === 'ready' && (
-                            <span className="text-emerald-600 font-medium flex items-center gap-1">
-                              <FiCheckCircle size={12} /> Ready
-                            </span>
-                          )}
-                          {img.status === 'failed' && (
-                            <span className="text-red-600 font-medium flex items-center gap-1">
-                              <FiAlertCircle size={12} /> {img.errorMessage || 'Upload failed'}
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Upload Progress Bar */}
-                        {['uploading', 'verifying'].includes(img.status) && (
-                          <div className="w-full bg-slate-100 rounded-full h-1.5 mt-1.5 overflow-hidden">
-                            <div
-                              className="bg-brand-blue h-full transition-all duration-200"
-                              style={{ width: `${img.progress}%` }}
-                            />
+                      {/* Status indicator */}
+                      <div className="mt-1 flex items-center gap-2">
+                        {img.status === 'validating' && (
+                          <span className="text-[11px] font-medium text-amber-600 flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
+                            Validating...
+                          </span>
+                        )}
+                        {img.status === 'authorizing' && (
+                          <span className="text-[11px] font-medium text-amber-600 flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
+                            Preparing upload...
+                          </span>
+                        )}
+                        {img.status === 'uploading' && (
+                          <div className="flex-1 max-w-[200px]">
+                            <div className="flex items-center justify-between text-[10px] text-slate-500 mb-1">
+                              <span>Uploading...</span>
+                              <span>{img.progress}%</span>
+                            </div>
+                            <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                              <div
+                                className="bg-brand-blue h-1.5 rounded-full transition-all duration-300"
+                                style={{ width: `${img.progress}%` }}
+                              />
+                            </div>
                           </div>
                         )}
-                      </div>
-
-                      {/* Actions */}
-                      <div className="flex items-center gap-1 shrink-0">
+                        {img.status === 'verifying' && (
+                          <span className="text-[11px] font-medium text-blue-600 flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse shrink-0" />
+                            Verifying...
+                          </span>
+                        )}
+                        {img.status === 'ready' && (
+                          <span className="text-[11px] font-medium text-emerald-600 flex items-center gap-1">
+                            <FiCheckCircle size={12} />
+                            Ready
+                          </span>
+                        )}
                         {img.status === 'failed' && (
-                          <button
-                            type="button"
-                            onClick={() => retryUpload(img)}
-                            className="px-2 py-1 text-xs font-semibold text-blue-600 hover:bg-blue-50 rounded"
-                          >
-                            Retry
-                          </button>
+                          <span className="text-[11px] font-medium text-rose-600 flex items-center gap-1 truncate" title={img.errorMessage}>
+                            <FiAlertCircle size={12} className="shrink-0" />
+                            {img.errorMessage || 'Upload failed'}
+                          </span>
                         )}
-
-                        {!isPrimary && img.status === 'ready' && (
-                          <button
-                            type="button"
-                            onClick={() => setAsPrimary(idx)}
-                            className="px-2.5 py-1 text-xs font-semibold text-[#534AB7] hover:bg-pink-50 rounded-lg border border-pink-200 transition-colors"
-                          >
-                            Set as Primary
-                          </button>
-                        )}
-
-                        <button
-                          type="button"
-                          disabled={idx === 0}
-                          onClick={() => moveImage(idx, -1)}
-                          className="p-1.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 rounded hover:bg-slate-100"
-                          title="Move up"
-                          aria-label="Move up"
-                        >
-                          <FiArrowUp size={14} />
-                        </button>
-
-                        <button
-                          type="button"
-                          disabled={idx === form.images.length - 1}
-                          onClick={() => moveImage(idx, 1)}
-                          className="p-1.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 rounded hover:bg-slate-100"
-                          title="Move down"
-                          aria-label="Move down"
-                        >
-                          <FiArrowDown size={14} />
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => removeImage(idx)}
-                          className="p-1.5 text-red-500 hover:bg-red-50 rounded"
-                          title="Remove image"
-                          aria-label="Remove image"
-                        >
-                          <FiTrash2 size={15} />
-                        </button>
                       </div>
                     </div>
-                  );
-                })}
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-1 shrink-0">
+                      {img.status === 'failed' ? (
+                        <button
+                          type="button"
+                          onClick={() => retryUpload(img)}
+                          className="px-2.5 py-1 text-xs font-semibold text-brand-blue hover:bg-blue-50 rounded-lg transition-colors flex items-center gap-1"
+                        >
+                          <FiRefreshCw size={12} />
+                          Retry
+                        </button>
+                      ) : img.status === 'ready' && !img.isPrimary ? (
+                        <button
+                          type="button"
+                          onClick={() => setAsPrimary(idx)}
+                          className="px-2.5 py-1 text-xs font-medium text-slate-600 hover:text-brand-blue hover:bg-slate-100 rounded-lg transition-colors flex items-center gap-1"
+                          title="Set as primary product photo"
+                          aria-label="Set as primary product photo"
+                        >
+                          <FiStar size={12} />
+                          Set Primary
+                        </button>
+                      ) : null}
+
+                      {/* Reorder Buttons */}
+                      <button
+                        type="button"
+                        onClick={() => moveImage(idx, -1)}
+                        disabled={idx === 0}
+                        className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 disabled:cursor-not-allowed"
+                        title="Move Up"
+                      >
+                        <FiArrowUp size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveImage(idx, 1)}
+                        disabled={idx === form.images.length - 1}
+                        className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 disabled:cursor-not-allowed"
+                        title="Move Down"
+                      >
+                        <FiArrowDown size={14} />
+                      </button>
+
+                      {/* Remove Button */}
+                      <button
+                        type="button"
+                        onClick={() => removeImage(idx)}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors ml-1"
+                        title="Remove image"
+                        aria-label="Remove image"
+                      >
+                        <FiTrash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
 
-          {/* Specifications */}
-          <div>
-            <label className={labelCls}>Specifications</label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {SPEC_FIELDS.map(([key, label]) => (
-                <div key={key}>
-                  <span className="text-[11px] text-slate-500">{label}</span>
-                  <input className={inputCls} value={form.specs[key]} onChange={(e) => setSpec(key, e.target.value)} />
-                </div>
-              ))}
+          {/* Highlights & Specs */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="product-highlights" className={labelCls}>Key Highlights (1 per line)</label>
+              <textarea
+                id="product-highlights"
+                className={`${inputCls} h-28 font-mono text-xs`}
+                value={form.highlights}
+                onChange={(e) => set('highlights', e.target.value)}
+                placeholder="6.7-inch Super Retina XDR display&#10;Titanium design with textured matte glass&#10;A17 Pro chip with 6-core GPU"
+              />
             </div>
-          </div>
-
-          {/* Highlights */}
-          <div>
-            <label className={labelCls}>Highlights (one per line)</label>
-            <textarea className={inputCls} rows={3} value={form.highlights} onChange={(e) => set('highlights', e.target.value)} placeholder={'48MP camera\n5000 mAh battery'} />
+            <div>
+              <label htmlFor="product-specs-processor" className={labelCls}>Specifications</label>
+              <div className="space-y-1.5 max-h-28 overflow-y-auto pr-1">
+                {SPEC_FIELDS.map(([key, label]) => (
+                  <div key={key} className="flex items-center gap-2">
+                    <span className="text-[11px] font-medium text-slate-500 w-24 shrink-0">{label}:</span>
+                    <input
+                      id={`product-specs-${key}`}
+                      className="flex-1 px-2 py-1 border border-slate-200 rounded text-xs focus:outline-none focus:ring-1 focus:ring-brand-blue"
+                      value={form.specs[key] || ''}
+                      onChange={(e) => setSpec(key, e.target.value)}
+                      placeholder={`e.g. ${label}`}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </form>
 
         {/* Footer */}
-        <div className="flex items-center justify-between p-5 border-t border-slate-100 shrink-0 bg-slate-50/50">
-          <div className="text-xs text-slate-500">
-            {failedCount > 0
-              ? `${readyCount} image(s) ready, ${failedCount} failed`
-              : inFlightCount > 0
-              ? `${readyCount} image(s) ready, ${inFlightCount} uploading`
-              : readyCount === 0
-              ? '0 images ready (At least one product image is required)'
-              : `${readyCount} image(s) ready`}
-          </div>
+        <div className="p-4 border-t border-slate-100 flex items-center justify-between shrink-0 bg-slate-50">
+          <span className="text-xs text-slate-500 font-medium truncate max-w-[280px]" title={getFooterStatusText()}>
+            {getFooterStatusText()}
+          </span>
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={handleModalClose}
-              disabled={saving}
-              className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200/60 rounded-lg transition-colors"
+              onClick={handleClose}
+              className="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-200/60 rounded-xl transition-colors"
             >
               Cancel
             </button>
             <button
-              form="product-form"
               type="submit"
+              form="product-form"
               disabled={!canSubmit}
-              className="px-5 py-2 text-sm font-bold text-white bg-brand-blue hover:bg-brand-blueHover rounded-lg disabled:opacity-50 transition-all shadow-md shadow-brand-blue/20"
+              className={`px-5 py-2 text-sm font-bold rounded-xl transition-all shadow-md ${
+                canSubmit
+                  ? 'bg-brand-blue text-white hover:bg-blue-600 shadow-blue-500/20 active:scale-95 cursor-pointer'
+                  : 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+              }`}
             >
-              {saving ? 'Saving...' : inFlightCount > 0 ? 'Uploading Photos...' : isEdit ? 'Save Changes' : 'Create Product'}
+              {getSubmitButtonLabel()}
             </button>
           </div>
         </div>
