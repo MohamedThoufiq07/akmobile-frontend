@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { FiX, FiTrash2, FiUploadCloud, FiStar, FiArrowUp, FiArrowDown, FiAlertCircle, FiCheckCircle } from 'react-icons/fi';
 import toast from 'react-hot-toast';
+import axios from 'axios';
 import adminApi from '../../utils/adminApi';
 import { BRANDS, CATEGORIES } from '../../utils/constants';
 import { getPlaceholderSvg } from '../../utils/imageHelper';
@@ -13,7 +14,6 @@ const SPEC_FIELDS = [
 
 const MAX_IMAGES = 10;
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
-const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
 const formatFileSize = (bytes) => {
   if (!bytes || bytes === 0) return '0 B';
@@ -44,8 +44,9 @@ const blankFromProduct = (p) => {
       filename: img.filename || nameFromUrl || img.altText || img.alt || `image-${idx + 1}.jpg`,
       fileSize: img.fileSize || 0,
       previewUrl: url || '',
-      status: 'success', // 'pending' | 'uploading' | 'success' | 'error'
+      status: 'ready', // 'pending' | 'validating' | 'uploading' | 'verifying' | 'ready' | 'failed'
       progress: 100,
+      errorMessage: '',
       isPrimary,
       isNew: false,
     };
@@ -79,6 +80,7 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
   const [isDirty, setIsDirty] = useState(false);
   const fileInputRef = useRef(null);
   const sessionTokenRef = useRef(null);
+  const abortControllersRef = useRef(new Map());
 
   const set = (key, value) => {
     setIsDirty(true);
@@ -105,12 +107,15 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
       // Fallback
     }
     return null;
-  }, [product?._id]);
+  }, [product]);
 
-  // Clean up object URLs on unmount
+  // Clean up object URLs and abort controllers on unmount
   useEffect(() => {
+    const activeControllers = abortControllersRef.current;
     const imagesToClean = form.images;
     return () => {
+      activeControllers.forEach((controller) => controller.abort());
+      activeControllers.clear();
       imagesToClean.forEach((img) => {
         if (img.previewUrl && img.isNew && img.previewUrl.startsWith('blob:')) {
           URL.revokeObjectURL(img.previewUrl);
@@ -122,7 +127,7 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
   // Warn before leaving if unsaved changes exist
   useEffect(() => {
     const handleBeforeUnload = (e) => {
-      const hasUploading = form.images.some((i) => i.status === 'uploading');
+      const hasUploading = form.images.some((i) => ['validating', 'uploading', 'verifying'].includes(i.status));
       if (isDirty || hasUploading) {
         e.preventDefault();
         e.returnValue = '';
@@ -132,57 +137,148 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isDirty, form.images]);
 
-  // Upload a single file
+  // Upload single file through direct-to-storage + finalize pipeline
   const uploadFile = async (imgId, file) => {
+    if (!file) return;
+
+    if (abortControllersRef.current.has(imgId)) {
+      abortControllersRef.current.get(imgId).abort();
+    }
+    const controller = new AbortController();
+    abortControllersRef.current.set(imgId, controller);
+
     try {
+      // 1. Validating
+      setForm((f) => ({
+        ...f,
+        images: f.images.map((i) => (i.id === imgId ? { ...i, status: 'validating', progress: 10, errorMessage: '' } : i)),
+      }));
+
+      const sessionToken = await getUploadSession();
+      if (!sessionToken) {
+        throw new Error('Unable to establish upload session. Please retry.');
+      }
+
+      // 2. Authorize upload
+      const authRes = await adminApi.post(
+        `/products/upload-session/${sessionToken}/authorize-upload`,
+        {
+          filename: file.name,
+          fileSize: file.size,
+          contentType: file.type || 'application/octet-stream',
+        },
+        { signal: controller.signal }
+      );
+
+      const { uploadUrl, headers: authHeaders, stagedItemId } = authRes.data;
+
+      // 3. Direct Upload to Staging Key
       setForm((f) => ({
         ...f,
         images: f.images.map((i) => (i.id === imgId ? { ...i, status: 'uploading', progress: 30 } : i)),
       }));
 
-      const sessionToken = await getUploadSession();
-      const endpoint = sessionToken ? `/products/upload-session/${sessionToken}/stage` : '/upload';
+      const isLocalStage = uploadUrl.includes('/stage-local/');
+      if (isLocalStage) {
+        // Backend development fallback endpoint
+        await adminApi.put(uploadUrl, file, {
+          signal: controller.signal,
+          headers: { 'Content-Type': 'application/octet-stream' },
+          onUploadProgress: (progressEvent) => {
+            if (progressEvent.total) {
+              const percent = Math.min(85, Math.round((progressEvent.loaded * 60) / progressEvent.total) + 30);
+              setForm((f) => ({
+                ...f,
+                images: f.images.map((i) => (i.id === imgId ? { ...i, progress: percent } : i)),
+              }));
+            }
+          },
+        });
+      } else {
+        // Direct to Vercel Blob PUT
+        await axios.put(uploadUrl, file, {
+          signal: controller.signal,
+          headers: {
+            ...authHeaders,
+            'Content-Type': 'application/octet-stream',
+          },
+          onUploadProgress: (progressEvent) => {
+            if (progressEvent.total) {
+              const percent = Math.min(85, Math.round((progressEvent.loaded * 60) / progressEvent.total) + 30);
+              setForm((f) => ({
+                ...f,
+                images: f.images.map((i) => (i.id === imgId ? { ...i, progress: percent } : i)),
+              }));
+            }
+          },
+        });
+      }
 
-      const fd = new FormData();
-      fd.append('image', file);
+      // 4. Authoritative Verification & Promotion (Finalize)
+      setForm((f) => ({
+        ...f,
+        images: f.images.map((i) => (i.id === imgId ? { ...i, status: 'verifying', progress: 90 } : i)),
+      }));
 
-      const { data } = await adminApi.post(endpoint, fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        onUploadProgress: (progressEvent) => {
-          if (progressEvent.total) {
-            const percent = Math.round((progressEvent.loaded * 90) / progressEvent.total);
-            setForm((f) => ({
-              ...f,
-              images: f.images.map((i) => (i.id === imgId ? { ...i, progress: percent } : i)),
-            }));
-          }
-        },
+      const finalizeRes = await adminApi.post(
+        `/products/upload-session/${sessionToken}/finalize-upload`,
+        { stagedItemId },
+        { signal: controller.signal }
+      );
+
+      const verifiedItem = finalizeRes.data.item;
+
+      // 5. Ready
+      setForm((f) => {
+        const updated = f.images.map((i) => (i.id === imgId ? {
+          ...i,
+          url: verifiedItem.url,
+          storageKey: verifiedItem.storageKey,
+          filename: verifiedItem.filename || file.name,
+          fileSize: verifiedItem.fileSize || file.size,
+          width: verifiedItem.width,
+          height: verifiedItem.height,
+          status: 'ready',
+          progress: 100,
+          errorMessage: '',
+        } : i));
+
+        // Auto-promote first ready image as primary if none exists
+        const hasReadyPrimary = updated.some((img) => img.isPrimary && img.status === 'ready');
+        if (!hasReadyPrimary) {
+          const firstReady = updated.find((img) => img.status === 'ready');
+          if (firstReady) firstReady.isPrimary = true;
+        }
+        return { ...f, images: updated };
       });
 
-      const url = data.url || data.item?.url;
-      const storageKey = data.storage_key || data.item?.storageKey || '';
-
-      setForm((f) => ({
-        ...f,
-        images: f.images.map((i) => (i.id === imgId ? {
-          ...i,
-          url,
-          storageKey,
-          status: 'success',
-          progress: 100,
-        } : i)),
-      }));
       setIsDirty(true);
+      abortControllersRef.current.delete(imgId);
     } catch (err) {
-      setForm((f) => ({
-        ...f,
-        images: f.images.map((i) => (i.id === imgId ? {
+      if (axios.isCancel(err) || err.name === 'CanceledError' || err.code === 'ERR_CANCELED') {
+        // Upload was cancelled by user; do not show failure toast
+        return;
+      }
+
+      const errMsg = err.response?.data?.message || err.message || 'Upload failed';
+      setForm((f) => {
+        const updated = f.images.map((i) => (i.id === imgId ? {
           ...i,
-          status: 'error',
-          errorMessage: err.response?.data?.message || 'Upload failed',
-        } : i)),
-      }));
-      toast.error(err.response?.data?.message || `Failed to upload ${file.name}`);
+          status: 'failed',
+          errorMessage: errMsg,
+        } : i));
+
+        // Auto-promote next ready image if this failed image was primary
+        const hasReadyPrimary = updated.some((img) => img.isPrimary && img.status === 'ready');
+        if (!hasReadyPrimary) {
+          const firstReady = updated.find((img) => img.status === 'ready');
+          if (firstReady) firstReady.isPrimary = true;
+        }
+        return { ...f, images: updated };
+      });
+
+      toast.error(errMsg);
+      abortControllersRef.current.delete(imgId);
     }
   };
 
@@ -206,12 +302,8 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
     const newImageEntries = [];
 
     for (const file of selectedFiles) {
-      if (!ALLOWED_TYPES.includes(file.type)) {
-        toast.error(`"${file.name}" is not supported. Use JPEG, PNG, or WebP.`);
-        continue;
-      }
       if (file.size > MAX_FILE_SIZE) {
-        toast.error(`"${file.name}" is too large (max 5MB).`);
+        toast.error(`"${file.name}" exceeds 5MB limit.`);
         continue;
       }
 
@@ -229,6 +321,7 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
         file,
         status: 'pending',
         progress: 0,
+        errorMessage: '',
         isPrimary: isFirstEver,
         isNew: true,
       };
@@ -240,10 +333,10 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
 
     setForm((f) => {
       const updated = [...f.images, ...newImageEntries];
-      // Guarantee exactly one primary
-      const hasPrimary = updated.some((img) => img.isPrimary);
-      if (!hasPrimary && updated.length > 0) {
-        updated[0].isPrimary = true;
+      const hasReadyPrimary = updated.some((img) => img.isPrimary && img.status === 'ready');
+      if (!hasReadyPrimary && updated.length > 0) {
+        const firstCandidate = updated.find((img) => img.status === 'ready') || updated[0];
+        if (firstCandidate) firstCandidate.isPrimary = true;
       }
       return { ...f, images: updated };
     });
@@ -280,12 +373,20 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
     setIsDirty(true);
     setForm((f) => {
       const target = f.images[index];
-      if (target?.previewUrl && target.isNew && target.previewUrl.startsWith('blob:')) {
-        URL.revokeObjectURL(target.previewUrl);
+      if (target) {
+        if (abortControllersRef.current.has(target.id)) {
+          abortControllersRef.current.get(target.id).abort();
+          abortControllersRef.current.delete(target.id);
+        }
+        if (target.previewUrl && target.isNew && target.previewUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(target.previewUrl);
+        }
       }
       const updated = f.images.filter((_, idx) => idx !== index);
-      if (target?.isPrimary && updated.length > 0) {
-        updated[0].isPrimary = true;
+      const hasReadyPrimary = updated.some((img) => img.isPrimary && img.status === 'ready');
+      if (!hasReadyPrimary) {
+        const firstReady = updated.find((img) => img.status === 'ready');
+        if (firstReady) firstReady.isPrimary = true;
       }
       return { ...f, images: updated };
     });
@@ -295,7 +396,7 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
     setIsDirty(true);
     setForm((f) => {
       const selected = f.images[index];
-      if (!selected) return f;
+      if (!selected || selected.status !== 'ready') return f;
       const remaining = f.images.filter((_, idx) => idx !== index);
       const reordered = [{ ...selected, isPrimary: true }, ...remaining.map((i) => ({ ...i, isPrimary: false }))];
       return { ...f, images: reordered };
@@ -312,7 +413,6 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
       const temp = copy[index];
       copy[index] = copy[targetIdx];
       copy[targetIdx] = temp;
-      // Position 0 is always marked primary
       return {
         ...f,
         images: copy.map((img, idx) => ({ ...img, isPrimary: idx === 0 })),
@@ -326,15 +426,34 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
     }
   };
 
+  const handleModalClose = () => {
+    // Abort all in-flight requests cleanly
+    abortControllersRef.current.forEach((controller) => controller.abort());
+    abortControllersRef.current.clear();
+    // Revoke blob preview URLs
+    form.images.forEach((img) => {
+      if (img.previewUrl && img.isNew && img.previewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(img.previewUrl);
+      }
+    });
+    onClose();
+  };
+
   const original = Number(form.originalPrice) || 0;
   const offer = Number(form.offerPrice) || 0;
   const discount = original > 0 && offer <= original ? Math.round(((original - offer) / original) * 100) : 0;
   const deliveryVal = parseFloat(form.deliveryCharge);
   const validDelivery = isNaN(deliveryVal) || deliveryVal < 0 ? '49.00' : deliveryVal.toFixed(2);
 
+  // Exact submit & footer conditions
+  const readyCount = form.images.filter((i) => i.status === 'ready').length;
+  const failedCount = form.images.filter((i) => i.status === 'failed').length;
+  const inFlightCount = form.images.filter((i) => ['pending', 'validating', 'uploading', 'verifying'].includes(i.status)).length;
+  const canSubmit = readyCount >= 1 && failedCount === 0 && inFlightCount === 0 && !saving;
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (saving) return;
+    if (!canSubmit) return;
 
     if (!form.name.trim() || !form.brand.trim() || !form.category.trim()) {
       toast.error('Name, brand and category are required.');
@@ -349,21 +468,24 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
       return;
     }
 
-    const hasUploading = form.images.some((i) => i.status === 'uploading');
-    if (hasUploading) {
+    if (inFlightCount > 0) {
       toast.error('Please wait for all image uploads to complete.');
       return;
     }
 
-    const hasErrors = form.images.some((i) => i.status === 'error');
-    if (hasErrors) {
+    if (failedCount > 0) {
       toast.error('Some images failed to upload. Please retry or remove them.');
       return;
     }
 
-    // Build payload images list
+    if (readyCount === 0) {
+      toast.error('At least one product image is required.');
+      return;
+    }
+
+    // Build payload images list from verified ready images only
     const preparedImages = form.images
-      .filter((img) => img.status === 'success' && img.url)
+      .filter((img) => img.status === 'ready' && img.url)
       .map((img, idx) => ({
         id: img.isNew ? undefined : img.id,
         url: img.url,
@@ -409,10 +531,8 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
     }
   };
 
-  const isUploadInProgress = form.images.some((i) => i.status === 'uploading');
-
   return (
-    <div className="fixed inset-0 z-[80] bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[80] bg-black/50 flex items-center justify-center p-4" onClick={handleModalClose}>
       <div
         className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl"
         onClick={(e) => e.stopPropagation()}
@@ -423,170 +543,178 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
             <h2 className="text-lg font-bold text-slate-900">{isEdit ? 'Edit Product' : 'Add Product'}</h2>
             <p className="text-xs text-slate-500">Enter product details, upload photos, and set delivery charge</p>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full text-slate-500"><FiX size={20} /></button>
+          <button onClick={handleModalClose} className="p-2 hover:bg-slate-100 rounded-full text-slate-500"><FiX size={20} /></button>
         </div>
 
         {/* Body */}
         <form id="product-form" onSubmit={handleSubmit} className="p-5 overflow-y-auto space-y-6">
-          {/* Basic Info */}
+          {/* General info */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="sm:col-span-2">
-              <label className={labelCls}>Product Name *</label>
-              <input className={inputCls} value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. iPhone 15 Pro Max" required />
+            <div>
+              <label htmlFor="product-name" className={labelCls}>Product Name *</label>
+              <input id="product-name" className={inputCls} required value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="iPhone 15 Pro Max" />
             </div>
             <div>
-              <label className={labelCls}>Brand *</label>
-              <input className={inputCls} list="brand-list" value={form.brand} onChange={(e) => set('brand', e.target.value)} placeholder="Brand" required />
-              <datalist id="brand-list">{BRANDS.map((b) => <option key={b} value={b} />)}</datalist>
+              <label htmlFor="product-brand" className={labelCls}>Brand *</label>
+              <select id="product-brand" className={inputCls} required value={form.brand} onChange={(e) => set('brand', e.target.value)}>
+                <option value="">Select Brand</option>
+                {BRANDS.map((b) => <option key={b} value={b}>{b}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="product-category" className={labelCls}>Category *</label>
+              <select id="product-category" className={inputCls} required value={form.category} onChange={(e) => set('category', e.target.value)}>
+                {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
             </div>
             <div>
-              <label className={labelCls}>Category *</label>
-              <input className={inputCls} list="cat-list" value={form.category} onChange={(e) => set('category', e.target.value)} placeholder="Category" required />
-              <datalist id="cat-list">{CATEGORIES.map((c) => <option key={c} value={c} />)}</datalist>
-            </div>
-            <div className="sm:col-span-2">
-              <label className={labelCls}>Description</label>
-              <textarea className={inputCls} rows={3} value={form.description} onChange={(e) => set('description', e.target.value)} placeholder="Short product description" />
+              <label htmlFor="product-description" className={labelCls}>Description</label>
+              <input id="product-description" className={inputCls} value={form.description} onChange={(e) => set('description', e.target.value)} placeholder="Short product summary..." />
             </div>
           </div>
 
           {/* Pricing, Delivery & Stock */}
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             <div>
-              <label className={labelCls}>Original Price (₹) *</label>
-              <input type="number" min="0" step="0.01" className={inputCls} value={form.originalPrice} onChange={(e) => set('originalPrice', e.target.value)} required />
+              <label htmlFor="product-original-price" className={labelCls}>Original Price (₹) *</label>
+              <input id="product-original-price" className={inputCls} type="number" min="1" required value={form.originalPrice} onChange={(e) => set('originalPrice', e.target.value)} />
             </div>
             <div>
-              <label className={labelCls}>Offer Price (₹) *</label>
-              <input type="number" min="0" step="0.01" className={inputCls} value={form.offerPrice} onChange={(e) => set('offerPrice', e.target.value)} required />
+              <label htmlFor="product-offer-price" className={labelCls}>Offer Price (₹) *</label>
+              <input id="product-offer-price" className={inputCls} type="number" min="1" required value={form.offerPrice} onChange={(e) => set('offerPrice', e.target.value)} />
             </div>
             <div>
-              <label htmlFor="deliveryCharge" className={labelCls}>Delivery Charge (₹) *</label>
-              <div className="relative">
-                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">₹</span>
-                <input
-                  id="deliveryCharge"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  className={`${inputCls} pl-6`}
-                  value={form.deliveryCharge}
-                  onChange={(e) => set('deliveryCharge', e.target.value)}
-                  placeholder="0.00"
-                  required
-                />
-              </div>
-              <p className="text-[10px] text-slate-400 mt-1">Enter 0 for free delivery</p>
+              <label htmlFor="product-delivery-charge" className={labelCls}>Delivery Charge (₹) *</label>
+              <input
+                id="product-delivery-charge"
+                className={inputCls}
+                type="number"
+                min="0"
+                step="1"
+                required
+                value={form.deliveryCharge}
+                onChange={(e) => set('deliveryCharge', e.target.value)}
+                placeholder="₹ 49.00"
+              />
+              <span className="text-[10px] text-slate-400 mt-0.5 block">Enter 0 for free delivery</span>
             </div>
             <div>
               <label className={labelCls}>Discount</label>
-              <input className={`${inputCls} bg-slate-100 font-bold text-emerald-600`} value={`${discount}%`} readOnly />
+              <input className={`${inputCls} bg-slate-50 text-slate-600 font-bold`} disabled value={`${discount}%`} />
             </div>
             <div>
-              <label className={labelCls}>Stock *</label>
-              <input type="number" min="0" className={inputCls} value={form.stock} onChange={(e) => set('stock', e.target.value)} required />
+              <label htmlFor="product-stock" className={labelCls}>Stock *</label>
+              <input id="product-stock" className={inputCls} type="number" min="0" required value={form.stock} onChange={(e) => set('stock', e.target.value)} />
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-6 pt-1">
-            <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
-              <input type="checkbox" checked={form.isFeatured} onChange={(e) => set('isFeatured', e.target.checked)} className="w-4 h-4 rounded text-brand-blue" />
+          {/* Featured & Flash sale flags */}
+          <div className="flex flex-wrap items-center gap-6 pt-1">
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-700">
+              <input type="checkbox" checked={form.isFeatured} onChange={(e) => set('isFeatured', e.target.checked)} className="rounded text-brand-blue" />
               Featured product (shown on homepage)
             </label>
-            <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
-              <input type="checkbox" checked={form.flashSale} onChange={(e) => set('flashSale', e.target.checked)} className="w-4 h-4 rounded text-brand-blue" />
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-700">
+              <input type="checkbox" checked={form.flashSale} onChange={(e) => set('flashSale', e.target.checked)} className="rounded text-amber-500" />
               Include in Flash Sale ⚡
             </label>
           </div>
 
-          {/* Multiple Product Images Upload Section */}
-          <div className="space-y-3 pt-2">
+          {/* Multiple Product Images Upload & Management */}
+          <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div>
-                <label className="block text-sm font-bold text-slate-800">
-                  Product Images ({form.images.length}/{MAX_IMAGES})
-                </label>
+                <label className="block text-sm font-bold text-slate-800">Product Images ({form.images.length}/{MAX_IMAGES})</label>
                 <p className="text-xs text-slate-500">
-                  Drag &amp; drop or select multiple photos (front, back, sides, box). The 1st image is the primary image.
+                  Drag &amp; drop or select multiple photos (front, back, sides, box). The 1st ready image is the primary image.
                 </p>
               </div>
-              <span className="text-[11px] font-medium text-slate-400 bg-slate-100 px-2 py-1 rounded">
-                JPEG, PNG, WebP · Max 5MB
+              <span className="text-[11px] font-semibold text-slate-400 bg-slate-100 px-2.5 py-1 rounded-full">
+                JPEG, PNG, WebP • Max 5MB
               </span>
             </div>
 
-            {/* Drag & Drop Area */}
-            {form.images.length < MAX_IMAGES && (
-              <div
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-                onClick={() => fileInputRef.current?.click()}
-                className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all ${
-                  isDragging
-                    ? 'border-brand-blue bg-blue-50/50 scale-[0.99]'
-                    : 'border-slate-300 hover:border-brand-blue hover:bg-slate-50'
-                }`}
-              >
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  accept="image/jpeg,image/png,image/webp"
-                  className="hidden"
-                  onChange={(e) => {
-                    handleFilesSelected(e.target.files);
-                    e.target.value = ''; // allow re-selecting same files
-                  }}
-                />
-                <FiUploadCloud className="mx-auto text-brand-blue mb-2" size={32} />
-                <p className="text-sm font-semibold text-slate-700">
-                  Drag &amp; drop product photos here, or <span className="text-brand-blue underline">Browse Files</span>
-                </p>
-                <p className="text-xs text-slate-400 mt-1">Select up to {MAX_IMAGES - form.images.length} more images</p>
+            {/* Drag & Drop Zone */}
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all duration-200 ${
+                isDragging
+                  ? 'border-brand-blue bg-blue-50/50 scale-[0.99]'
+                  : form.images.length >= MAX_IMAGES
+                  ? 'border-slate-200 bg-slate-50 opacity-60 cursor-not-allowed'
+                  : 'border-slate-200 hover:border-brand-blue hover:bg-slate-50/60'
+              }`}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                className="hidden"
+                disabled={form.images.length >= MAX_IMAGES}
+                onChange={(e) => {
+                  handleFilesSelected(e.target.files);
+                  e.target.value = '';
+                }}
+              />
+              <div className="w-12 h-12 rounded-full bg-pink-50 text-brand-pink flex items-center justify-center mx-auto mb-2">
+                <FiUploadCloud size={24} />
               </div>
-            )}
+              <p className="text-sm font-semibold text-slate-700">
+                Drag &amp; drop product photos here, or <span className="text-brand-pink underline">Browse Files</span>
+              </p>
+              <p className="text-xs text-slate-400 mt-1">
+                {form.images.length >= MAX_IMAGES
+                  ? `Limit of ${MAX_IMAGES} images reached`
+                  : `Select up to ${MAX_IMAGES - form.images.length} more images`}
+              </p>
+            </div>
 
-            {/* Image Preview Cards List */}
+            {/* Images List */}
             {form.images.length > 0 && (
-              <div className="space-y-2 mt-3">
+              <div className="space-y-2 mt-4">
                 {form.images.map((img, idx) => {
-                  const isPrimary = idx === 0 || img.isPrimary;
+                  const isPrimary = Boolean(img.isPrimary && img.status === 'ready');
                   return (
                     <div
                       key={img.id}
                       className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
                         isPrimary
-                          ? 'border-[#534AB7] bg-pink-50/20 shadow-sm'
+                          ? 'border-pink-300 bg-pink-50/30 shadow-sm ring-1 ring-pink-300'
                           : 'border-slate-200 bg-white hover:border-slate-300'
                       }`}
                     >
-                      {/* Thumbnail */}
-                      <div className="w-14 h-14 bg-slate-50 border border-slate-200 rounded-lg p-1 shrink-0 flex items-center justify-center overflow-hidden relative">
+                      {/* Image Thumbnail Preview */}
+                      <div className="relative w-14 h-14 rounded-lg bg-slate-100 border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center">
                         <img
-                          src={img.previewUrl || img.url || getPlaceholderSvg(form.name)}
+                          src={img.previewUrl || getPlaceholderSvg(img.filename)}
                           alt={img.filename}
                           className="w-full h-full object-contain"
                           onError={(e) => {
-                            e.target.onerror = null;
-                            e.target.src = getPlaceholderSvg(form.name);
+                            e.target.src = getPlaceholderSvg(img.filename);
                           }}
                         />
                         {isPrimary && (
-                          <span className="absolute top-0.5 right-0.5 bg-[#534AB7] text-white p-0.5 rounded-full shadow-xs">
-                            <FiStar size={10} className="fill-white" />
-                          </span>
+                          <div className="absolute top-1 left-1 bg-brand-pink text-white rounded-full p-0.5 shadow-sm" title="Primary image">
+                            <FiStar size={10} className="fill-current" />
+                          </div>
                         )}
                       </div>
 
-                      {/* File Info & Status */}
+                      {/* Image Metadata & Status */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <p className="text-xs font-bold text-slate-800 truncate" title={img.filename}>
                             {img.filename}
                           </p>
                           {isPrimary && (
-                            <span className="px-1.5 py-0.5 text-[10px] font-bold bg-pink-100 text-[#534AB7] rounded">
+                            <span className="text-[10px] font-bold uppercase bg-pink-100 text-brand-pink px-1.5 py-0.5 rounded">
                               Primary
                             </span>
                           )}
@@ -595,23 +723,29 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
                         <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-500">
                           <span>{formatFileSize(img.fileSize)}</span>
                           <span>•</span>
+                          {img.status === 'validating' && (
+                            <span className="text-amber-600 font-medium">Validating...</span>
+                          )}
                           {img.status === 'uploading' && (
                             <span className="text-blue-600 font-medium">Uploading... {img.progress}%</span>
                           )}
-                          {img.status === 'success' && (
+                          {img.status === 'verifying' && (
+                            <span className="text-indigo-600 font-medium">Verifying...</span>
+                          )}
+                          {img.status === 'ready' && (
                             <span className="text-emerald-600 font-medium flex items-center gap-1">
                               <FiCheckCircle size={12} /> Ready
                             </span>
                           )}
-                          {img.status === 'error' && (
+                          {img.status === 'failed' && (
                             <span className="text-red-600 font-medium flex items-center gap-1">
-                              <FiAlertCircle size={12} /> {img.errorMessage || 'Failed'}
+                              <FiAlertCircle size={12} /> {img.errorMessage || 'Upload failed'}
                             </span>
                           )}
                         </div>
 
                         {/* Upload Progress Bar */}
-                        {img.status === 'uploading' && (
+                        {['uploading', 'verifying'].includes(img.status) && (
                           <div className="w-full bg-slate-100 rounded-full h-1.5 mt-1.5 overflow-hidden">
                             <div
                               className="bg-brand-blue h-full transition-all duration-200"
@@ -623,7 +757,7 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
 
                       {/* Actions */}
                       <div className="flex items-center gap-1 shrink-0">
-                        {img.status === 'error' && (
+                        {img.status === 'failed' && (
                           <button
                             type="button"
                             onClick={() => retryUpload(img)}
@@ -633,7 +767,7 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
                           </button>
                         )}
 
-                        {!isPrimary && img.status === 'success' && (
+                        {!isPrimary && img.status === 'ready' && (
                           <button
                             type="button"
                             onClick={() => setAsPrimary(idx)}
@@ -705,12 +839,18 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
         {/* Footer */}
         <div className="flex items-center justify-between p-5 border-t border-slate-100 shrink-0 bg-slate-50/50">
           <div className="text-xs text-slate-500">
-            {form.images.length === 0 ? 'No images selected (will use placeholder)' : `${form.images.length} image(s) ready`}
+            {failedCount > 0
+              ? `${readyCount} image(s) ready, ${failedCount} failed`
+              : inFlightCount > 0
+              ? `${readyCount} image(s) ready, ${inFlightCount} uploading`
+              : readyCount === 0
+              ? '0 images ready (At least one product image is required)'
+              : `${readyCount} image(s) ready`}
           </div>
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleModalClose}
               disabled={saving}
               className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200/60 rounded-lg transition-colors"
             >
@@ -719,10 +859,10 @@ const ProductFormModal = ({ product, onClose, onSaved }) => {
             <button
               form="product-form"
               type="submit"
-              disabled={saving || isUploadInProgress}
-              className="px-5 py-2 text-sm font-bold text-white bg-brand-blue hover:bg-brand-blueHover rounded-lg disabled:opacity-60 transition-all shadow-md shadow-brand-blue/20"
+              disabled={!canSubmit}
+              className="px-5 py-2 text-sm font-bold text-white bg-brand-blue hover:bg-brand-blueHover rounded-lg disabled:opacity-50 transition-all shadow-md shadow-brand-blue/20"
             >
-              {saving ? 'Saving...' : isUploadInProgress ? 'Uploading Photos...' : isEdit ? 'Save Changes' : 'Create Product'}
+              {saving ? 'Saving...' : inFlightCount > 0 ? 'Uploading Photos...' : isEdit ? 'Save Changes' : 'Create Product'}
             </button>
           </div>
         </div>
