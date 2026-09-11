@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { FiX, FiTrash2, FiUploadCloud, FiStar, FiArrowUp, FiArrowDown, FiAlertCircle, FiCheckCircle, FiRefreshCw } from 'react-icons/fi';
 import toast from 'react-hot-toast';
 import axios from 'axios';
+import { upload } from '@vercel/blob/client';
 import adminApi from '../../utils/adminApi';
 import {
   MIN_PRODUCT_IMAGES,
@@ -340,15 +341,18 @@ const ProductFormModal = ({ product, isOpen = true, onClose, onSaved }) => {
         { signal: controller.signal, timeout: 15000 }
       );
 
-      const { uploadUrl, headers: authHeaders, stagedItemId } = authRes.data;
+      const { stagedItemId, uploadGrant, pathname, mode, uploadUrl: localUploadUrl, handleUploadUrl } = authRes.data;
 
-      // 3. Uploading (Direct to staging)
+      // 3. Uploading (Direct to Vercel Blob via @vercel/blob/client)
       logTransition(imgId, 'authorizing', 'uploading');
       updateImageItem(imgId, { status: 'uploading', progress: 30 });
 
-      const isLocalStage = uploadUrl.includes('/stage-local/');
-      if (isLocalStage) {
-        await adminApi.put(uploadUrl, file, {
+      let uploadedBlobUrl = '';
+      let uploadedBlobPathname = pathname;
+
+      if (mode === 'local' && localUploadUrl && localUploadUrl.includes('/stage-local/')) {
+        // Fallback for offline local dev/unit testing
+        await adminApi.put(localUploadUrl, file, {
           signal: controller.signal,
           timeout: 120000,
           headers: { 'Content-Type': 'application/octet-stream' },
@@ -359,30 +363,41 @@ const ProductFormModal = ({ product, isOpen = true, onClose, onSaved }) => {
             }
           },
         });
+        uploadedBlobUrl = localUploadUrl;
       } else {
-        await axios.put(uploadUrl, file, {
-          signal: controller.signal,
-          timeout: 120000,
-          headers: {
-            ...authHeaders,
-            'Content-Type': 'application/octet-stream',
-          },
+        // Official @vercel/blob direct browser upload
+        const targetPathname = pathname || `products/staging/${sessionToken}/${stagedItemId}.upload`;
+        const blobResult = await upload(targetPathname, file, {
+          access: 'public',
+          handleUploadUrl: handleUploadUrl || '/api/product-image-upload',
+          clientPayload: JSON.stringify({
+            grant: uploadGrant,
+            stagedItemId,
+            sessionToken,
+            filename: file.name,
+          }),
+          abortSignal: controller.signal,
           onUploadProgress: (progressEvent) => {
-            if (progressEvent.total) {
-              const percent = Math.min(85, Math.round((progressEvent.loaded * 55) / progressEvent.total) + 30);
-              updateImageItem(imgId, { progress: percent });
-            }
+            const pct = Math.min(85, Math.round((progressEvent.percentage * 55) / 100) + 30);
+            updateImageItem(imgId, { progress: pct });
           },
         });
+
+        uploadedBlobUrl = blobResult.url;
+        uploadedBlobPathname = blobResult.pathname || targetPathname;
       }
 
-      // 4. Verifying
+      // 4. Verifying with Django Backend
       logTransition(imgId, 'uploading', 'verifying');
       updateImageItem(imgId, { status: 'verifying', progress: 90 });
 
       const finalizeRes = await adminApi.post(
         `/products/upload-session/${sessionToken}/finalize-upload`,
-        { stagedItemId },
+        {
+          stagedItemId,
+          blobUrl: uploadedBlobUrl,
+          blobPathname: uploadedBlobPathname,
+        },
         { signal: controller.signal, timeout: 25000 }
       );
 
@@ -410,7 +425,31 @@ const ProductFormModal = ({ product, isOpen = true, onClose, onSaved }) => {
       }
 
       logTransition(imgId, 'in-flight', 'failed');
-      const errMsg = err.response?.data?.message || err.message || 'Upload failed';
+
+      let errMsg = 'Upload failed';
+      const status = err.response?.status;
+      const data = err.response?.data;
+      const code = data?.code;
+      const reqId = data?.request_id ? ` (Req ID: ${data.request_id.slice(0, 8)})` : '';
+
+      if (code === 'SESSION_EXPIRED' || status === 409) {
+        errMsg = `Session expired. Please retry.${reqId}`;
+      } else if (code === 'MAX_IMAGES_EXCEEDED') {
+        errMsg = data?.message || `Maximum 5 images allowed.${reqId}`;
+      } else if (code === 'INVALID_IMAGE' || status === 400) {
+        errMsg = data?.message || `Image verification failed.${reqId}`;
+      } else if (status === 503) {
+        errMsg = `Storage temporarily unavailable.${reqId}`;
+      } else if (status === 504 || err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+        errMsg = `Upload timed out. Please retry.${reqId}`;
+      } else if (status === 401 || status === 403 || code === 'UPLOAD_AUTHORIZATION_FAILED') {
+        errMsg = `Authorization failed.${reqId}`;
+      } else if (data?.message) {
+        errMsg = `${data.message}${reqId}`;
+      } else if (err.message) {
+        errMsg = err.message.replace(/Bearer\s+[a-zA-Z0-9_\-.]+/gi, '[REDACTED]');
+      }
+
       updateImageItem(imgId, {
         status: 'failed',
         errorMessage: errMsg,
