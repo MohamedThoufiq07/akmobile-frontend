@@ -1,22 +1,31 @@
-import { useState, useEffect, useRef } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { FiShoppingCart, FiHeart, FiCheck, FiTruck, FiShield, FiZap, FiChevronUp, FiChevronDown, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
+import { FiShoppingCart, FiHeart, FiCheck, FiTruck, FiShield, FiZap, FiChevronUp, FiChevronDown, FiChevronLeft, FiChevronRight, FiLoader, FiRotateCcw } from 'react-icons/fi';
 import { FaHeart } from 'react-icons/fa';
 import api from '../utils/api';
+import { useAuth } from '../context/useAuth';
 import { useCart } from '../context/useCart';
 import { useWishlist } from '../context/useWishlist';
 import { useRecentlyViewed } from '../hooks/useRecentlyViewed';
+import { useNotification } from '../context/useNotification';
+import { formatErrorMessage } from '../utils/formatError';
 import { formatPrice } from '../utils/formatPrice';
 import RatingStars from '../components/ui/RatingStars';
 import ProductCard from '../components/ui/ProductCard';
 import { ProductDetailSkeleton, PageSkeleton } from '../components/ui/skeleton';
 import { Reveal, RevealStagger, RevealItem } from '../components/ui/animations';
 import { getValidImageUrl, getPlaceholderSvg } from '../utils/imageHelper';
+import RatingBreakdown from '../components/reviews/RatingBreakdown';
+import ReviewCard from '../components/reviews/ReviewCard';
+import ReviewFormModal from '../components/reviews/ReviewFormModal';
 
 const ProductDetailPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const { isAuthenticated } = useAuth();
+  const notify = useNotification();
   const { addToCart } = useCart();
   const { toggleWishlist, isInWishlist } = useWishlist();
   const { addRecentlyViewed } = useRecentlyViewed();
@@ -27,9 +36,28 @@ const ProductDetailPage = () => {
   const [error, setError] = useState(null);
   const [activeImage, setActiveImage] = useState(0);
   const [quantity, setQuantity] = useState(1);
-  const [activeTab, setActiveTab] = useState('description');
+  const [activeTab, setActiveTab] = useState(location.hash === '#reviews' ? 'reviews' : 'description');
   const [showZoom, setShowZoom] = useState(false);
   const [zoomState, setZoomState] = useState({ lensX: 0, lensY: 0, bgX: 0, bgY: 0 });
+
+  // Review & Eligibility state
+  const [reviewsData, setReviewsData] = useState({
+    summary: { averageRating: 0, reviewCount: 0, distribution: {} },
+    results: [],
+  });
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+  const [reviewsError, setReviewsError] = useState(null);
+  const [eligibility, setEligibility] = useState({
+    canReview: false,
+    reason: null,
+    isVerifiedPurchase: false,
+    existingReviewId: null,
+    existingReview: null,
+  });
+  const [checkingEligibility, setCheckingEligibility] = useState(false);
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+  const [editingReview, setEditingReview] = useState(null);
+  const [submittingReview, setSubmittingReview] = useState(false);
 
   const thumbnailContainerRef = useRef(null);
 
@@ -108,6 +136,130 @@ const ProductDetailPage = () => {
       left: offset,
       behavior: 'smooth',
     });
+  };
+
+  const fetchReviews = useCallback(async () => {
+    try {
+      setReviewsLoading(true);
+      const { data } = await api.get(`/products/${id}/reviews`);
+      if (data.success) {
+        setReviewsData({
+          summary: data.summary || { averageRating: 0, reviewCount: 0, distribution: {} },
+          results: data.results || [],
+        });
+        setProduct((prev) =>
+          prev
+            ? {
+                ...prev,
+                rating: data.summary?.averageRating ?? prev.rating,
+                numReviews: data.summary?.reviewCount ?? prev.numReviews,
+                reviews: data.results || prev.reviews,
+              }
+            : prev
+        );
+      }
+      setReviewsError(null);
+    } catch {
+      setReviewsError('Failed to load reviews.');
+    } finally {
+      setReviewsLoading(false);
+    }
+  }, [id]);
+
+  const fetchEligibility = useCallback(async () => {
+    if (!isAuthenticated) {
+      setEligibility({
+        canReview: false,
+        reason: 'AUTHENTICATION_REQUIRED',
+        isVerifiedPurchase: false,
+        existingReviewId: null,
+        existingReview: null,
+      });
+      return;
+    }
+    try {
+      const { data } = await api.get(`/products/${id}/reviews/eligibility`);
+      setEligibility(data);
+    } catch {
+      // safe fallback
+    }
+  }, [id, isAuthenticated]);
+
+  useEffect(() => {
+    let ignore = false;
+    const loadData = async () => {
+      if (!ignore) {
+        await fetchReviews();
+        await fetchEligibility();
+      }
+    };
+    loadData();
+    return () => {
+      ignore = true;
+    };
+  }, [fetchReviews, fetchEligibility]);
+
+  const handleWriteReviewClick = async () => {
+    if (!isAuthenticated) {
+      notify.info('Please sign in to write a review.');
+      navigate(`/login?redirect=${encodeURIComponent(`/products/${id}#reviews`)}`);
+      return;
+    }
+
+    setCheckingEligibility(true);
+    try {
+      const { data } = await api.get(`/products/${id}/reviews/eligibility`);
+      setEligibility(data);
+
+      if (data.canReview) {
+        setEditingReview(null);
+        setIsReviewModalOpen(true);
+      } else if (data.reason === 'REVIEW_ALREADY_EXISTS') {
+        const existing = data.existingReview || (data.existingReviewId ? { _id: data.existingReviewId } : null);
+        setEditingReview(existing);
+        setIsReviewModalOpen(true);
+      } else if (data.reason === 'PURCHASE_REQUIRED') {
+        notify.error('Only customers who purchased this product can review it.');
+      } else if (data.reason === 'ORDER_NOT_DELIVERED') {
+        notify.warning('You can review this product after it has been delivered.');
+      } else if (data.reason === 'PAYMENT_NOT_VERIFIED') {
+        notify.error('Your payment has not been verified for this order.');
+      } else if (data.reason === 'PRODUCT_INACTIVE') {
+        notify.error('This product is no longer active.');
+      } else {
+        notify.error('You are not eligible to review this product.');
+      }
+    } catch (err) {
+      notify.error(formatErrorMessage(err, 'Failed to verify review eligibility.'));
+    } finally {
+      setCheckingEligibility(false);
+    }
+  };
+
+  const handleEditReviewFromCard = (rev) => {
+    setEditingReview(rev);
+    setIsReviewModalOpen(true);
+  };
+
+  const handleReviewSubmit = async (formData) => {
+    setSubmittingReview(true);
+    try {
+      if (editingReview && editingReview._id) {
+        await api.put(`/products/${id}/reviews/${editingReview._id}`, formData);
+        notify.success('Review updated successfully.');
+      } else {
+        await api.post(`/products/${id}/reviews`, formData);
+        notify.success('Review submitted successfully.');
+      }
+      setIsReviewModalOpen(false);
+      await fetchReviews();
+      await fetchEligibility();
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Failed to submit review.';
+      notify.error(formatErrorMessage(err, msg));
+    } finally {
+      setSubmittingReview(false);
+    }
   };
 
   if (loading) {
@@ -500,52 +652,90 @@ const ProductDetailPage = () => {
 
             {activeTab === 'reviews' && (
               <div>
-                <div className="flex flex-col md:flex-row items-center justify-between mb-8 pb-8 border-b border-slate-100">
-                  <div className="text-center md:text-left mb-6 md:mb-0">
-                    <h3 className="font-bold text-slate-800 text-2xl mb-2">Customer Reviews</h3>
-                    <div className="flex items-center justify-center md:justify-start gap-3">
-                      <span className="text-4xl font-bold text-slate-900">{product.rating.toFixed(1)}</span>
-                      <div>
-                        <RatingStars rating={product.rating} size={20} />
-                        <p className="text-sm text-slate-500 mt-1">Based on {product.numReviews} reviews</p>
-                      </div>
-                    </div>
+                {/* Header Summary & Write Review CTA */}
+                <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-8 pb-8 border-b border-slate-100">
+                  <div className="text-center md:text-left">
+                    <h3 className="font-bold text-slate-800 text-2xl mb-1">Customer Reviews</h3>
+                    <p className="text-sm text-slate-500">
+                      Verified customer feedback and authentic ratings
+                    </p>
                   </div>
 
-                  <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 max-w-sm w-full text-center">
-                    <p className="font-semibold mb-2 text-slate-800">Bought this product?</p>
-                    <p className="text-sm text-slate-500 mb-4">Share your experience with other customers</p>
-                    <Link to="/login" className="px-4 py-2 bg-white border border-slate-300 font-semibold rounded-lg hover:bg-slate-100 text-slate-700 block transition-all">
-                      Write a Review
-                    </Link>
+                  <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 max-w-sm w-full text-center">
+                    <p className="font-bold mb-1 text-slate-800 text-sm sm:text-base">
+                      {eligibility.existingReviewId || eligibility.reason === 'REVIEW_ALREADY_EXISTS'
+                        ? 'Already reviewed this product?'
+                        : 'Bought this product?'}
+                    </p>
+                    <p className="text-xs text-slate-500 mb-3.5">
+                      {eligibility.existingReviewId || eligibility.reason === 'REVIEW_ALREADY_EXISTS'
+                        ? 'You can update your published rating and comments'
+                        : 'Share your verified experience with other customers'}
+                    </p>
+
+                    <button
+                      type="button"
+                      disabled={checkingEligibility}
+                      onClick={handleWriteReviewClick}
+                      className={`w-full px-5 py-2.5 font-bold text-sm rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 ${
+                        eligibility.existingReviewId || eligibility.reason === 'REVIEW_ALREADY_EXISTS'
+                          ? 'bg-slate-900 hover:bg-slate-800 text-white shadow-sm'
+                          : 'bg-brand-blue hover:bg-brand-blueDark text-white shadow-md shadow-blue-500/20 hover:shadow-lg'
+                      }`}
+                    >
+                      {checkingEligibility && <FiLoader className="animate-spin" size={15} />}
+                      <span>
+                        {eligibility.existingReviewId || eligibility.reason === 'REVIEW_ALREADY_EXISTS'
+                          ? 'Edit Your Review'
+                          : 'Write a Review'}
+                      </span>
+                    </button>
                   </div>
                 </div>
 
-                <div className="space-y-6">
-                  {product.reviews?.length > 0 ? (
-                    product.reviews.map((review) => (
-                      <div key={review._id} className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
-                        <div className="flex justify-between items-start mb-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-gradient-to-br from-brand-blue to-purple-600 text-white rounded-full flex items-center justify-center font-bold uppercase">
-                              {review.name.charAt(0)}
-                            </div>
-                            <div>
-                              <p className="font-bold text-slate-800">{review.name}</p>
-                              <div className="flex items-center gap-2 mt-1">
-                                <RatingStars rating={review.rating} />
-                                <span className="text-xs text-slate-500">{new Date(review.createdAt).toLocaleDateString()}</span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                        <p className="text-slate-600">{review.comment}</p>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-slate-500 text-center py-8">No reviews yet. Be the first to review this product!</p>
-                  )}
-                </div>
+                {/* Rating Breakdown */}
+                <RatingBreakdown
+                  distribution={reviewsData.summary?.distribution}
+                  reviewCount={reviewsData.summary?.reviewCount ?? product.numReviews}
+                  averageRating={reviewsData.summary?.averageRating ?? product.rating}
+                />
+
+                {/* Reviews List / Error / Empty State */}
+                {reviewsLoading ? (
+                  <div className="py-12 text-center text-slate-400">
+                    <FiLoader className="animate-spin inline-block mr-2" size={20} />
+                    <span>Loading verified reviews...</span>
+                  </div>
+                ) : reviewsError ? (
+                  <div className="bg-rose-50 border border-rose-200 rounded-2xl p-6 text-center text-rose-700">
+                    <p className="text-sm font-medium mb-3">{reviewsError}</p>
+                    <button
+                      type="button"
+                      onClick={fetchReviews}
+                      className="px-4 py-2 bg-white border border-rose-300 rounded-xl text-xs font-bold text-rose-700 hover:bg-rose-100 transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <FiRotateCcw size={13} />
+                      <span>Retry</span>
+                    </button>
+                  </div>
+                ) : reviewsData.results?.length > 0 ? (
+                  <div className="space-y-4">
+                    {reviewsData.results.map((review) => (
+                      <ReviewCard
+                        key={review._id}
+                        review={review}
+                        onEdit={handleEditReviewFromCard}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="bg-slate-50 border border-dashed border-slate-200 rounded-2xl p-10 text-center text-slate-500">
+                    <p className="font-semibold text-slate-700 mb-1">No reviews yet</p>
+                    <p className="text-xs text-slate-400">
+                      Be the first verified purchaser to leave a review!
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -565,6 +755,16 @@ const ProductDetailPage = () => {
           </Reveal>
         )}
       </div>
+
+      {/* Review Form Modal */}
+      <ReviewFormModal
+        isOpen={isReviewModalOpen}
+        onClose={() => setIsReviewModalOpen(false)}
+        onSubmit={handleReviewSubmit}
+        initialData={editingReview}
+        productName={product?.name}
+        loading={submittingReview}
+      />
     </>
   );
 };

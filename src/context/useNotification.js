@@ -1,12 +1,17 @@
 import { useContext } from 'react';
 import { NotificationContext } from './notificationContexts';
 
+const fallbackNotify = {
+  success: () => {},
+  error: () => {},
+  warning: () => {},
+  info: () => {},
+  dismiss: () => {},
+};
+
 export const useNotification = () => {
   const context = useContext(NotificationContext);
-  if (!context) {
-    throw new Error('useNotification must be used within a GlobalNotificationProvider');
-  }
-  return context;
+  return context || fallbackNotify;
 };
 
 export default useNotification;
