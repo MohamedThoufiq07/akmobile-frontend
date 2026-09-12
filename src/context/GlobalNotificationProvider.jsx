@@ -3,6 +3,26 @@ import { CenteredToastContainer } from '../components/ui/CenteredToast';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { NotificationContext, ConfirmContext } from './notificationContexts';
 
+const formatToastMessage = (message) => {
+  if (!message) return 'An unexpected error occurred.';
+  if (typeof message === 'string') return message.trim();
+  if (typeof message === 'object') {
+    if (message.response?.data?.message && typeof message.response.data.message === 'string') {
+      return message.response.data.message.trim();
+    }
+    if (message.response?.data?.error && typeof message.response.data.error === 'string') {
+      return message.response.data.error.trim();
+    }
+    if (message.response?.data?.detail && typeof message.response.data.detail === 'string') {
+      return message.response.data.detail.trim();
+    }
+    if (message.message && typeof message.message === 'string' && !message.message.includes('AxiosError')) {
+      return message.message.trim();
+    }
+  }
+  return 'Unable to complete the request. Please try again.';
+};
+
 export const GlobalNotificationProvider = ({ children }) => {
   const [toasts, setToasts] = useState([]);
   const [dialogState, setDialogState] = useState({
@@ -20,13 +40,23 @@ export const GlobalNotificationProvider = ({ children }) => {
 
   // Toast Management
   const addToast = useCallback(({ type = 'info', title = '', message = '', duration }) => {
+    const formattedMessage = formatToastMessage(message);
     const id = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    const formattedMessage = typeof message === 'string' ? message : (message?.message || JSON.stringify(message));
     
-    setToasts((prev) => [
-      ...prev,
-      { id, type, title, message: formattedMessage, duration },
-    ]);
+    setToasts((prev) => {
+      // Prevent immediate duplicate active toast with identical type and message
+      const isDuplicate = prev.some((t) => t.type === type && t.message === formattedMessage);
+      if (isDuplicate) {
+        return prev;
+      }
+      // Cap visible toasts to maximum 3: drop oldest
+      const trimmed = prev.length >= 3 ? prev.slice(prev.length - 2) : prev;
+      return [
+        ...trimmed,
+        { id, type, title: title ? String(title).trim() : '', message: formattedMessage, duration },
+      ];
+    });
+
     return id;
   }, []);
 
@@ -35,10 +65,10 @@ export const GlobalNotificationProvider = ({ children }) => {
   }, []);
 
   const notify = {
-    success: (message, title) => addToast({ type: 'success', message, title, duration: 3500 }),
-    error: (message, title) => addToast({ type: 'error', message, title, duration: 6000 }),
+    success: (message, title) => addToast({ type: 'success', message, title, duration: 3000 }),
+    error: (message, title) => addToast({ type: 'error', message, title, duration: 7000 }),
     warning: (message, title) => addToast({ type: 'warning', message, title, duration: 5000 }),
-    info: (message, title) => addToast({ type: 'info', message, title, duration: 3500 }),
+    info: (message, title) => addToast({ type: 'info', message, title, duration: 4000 }),
     dismiss: removeToast,
   };
 
