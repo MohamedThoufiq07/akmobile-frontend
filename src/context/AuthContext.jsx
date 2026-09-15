@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import api from '../utils/api';
 import toast from 'react-hot-toast';
 import { AuthContext } from './useAuth';
+import { disableGoogleAutoSelect } from '../utils/googleIdentity';
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -63,6 +64,33 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const googleLogin = async (credential, password = null) => {
+    try {
+      const payload = { credential };
+      if (password) {
+        payload.password = password;
+      }
+      const { data } = await api.post('/accounts/google/', payload);
+      if (data.user.role === 'admin') {
+        toast.error('Customer account required');
+        return { success: false, code: 'CUSTOMER_ACCOUNT_REQUIRED', message: 'Customer account required' };
+      }
+      localStorage.setItem('token', data.token);
+      setUser(data.user);
+      setIsAuthenticated(true);
+      toast.success('Signed in with Google successfully!');
+      return { success: true, user: data.user };
+    } catch (error) {
+      const resData = error.response?.data;
+      const code = resData?.code || 'GOOGLE_AUTH_FAILED';
+      const msg = resData?.message || 'Google authentication failed';
+      if (code !== 'ACCOUNT_LINK_REQUIRED') {
+        toast.error(msg);
+      }
+      return { success: false, code, message: msg };
+    }
+  };
+
   const register = async (userData) => {
     try {
       const { data } = await api.post('/auth/register', userData);
@@ -79,6 +107,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = () => {
+    disableGoogleAutoSelect();
     localStorage.removeItem('token');
     setUser(null);
     setIsAuthenticated(false);
@@ -107,6 +136,7 @@ export const AuthProvider = ({ children }) => {
         isAuthenticated,
         isAdmin,
         login,
+        googleLogin,
         register,
         logout,
         updateProfile,
