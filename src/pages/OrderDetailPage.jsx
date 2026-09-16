@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { FiArrowLeft, FiDownload, FiCheck, FiCheckCircle, FiPackage, FiTruck, FiMapPin, FiInfo, FiRefreshCw, FiAlertTriangle } from 'react-icons/fi';
+import { FiArrowLeft, FiDownload, FiCheck, FiCheckCircle, FiPackage, FiTruck, FiMapPin, FiInfo, FiRefreshCw, FiAlertTriangle, FiShoppingBag } from 'react-icons/fi';
 import api from '../utils/api';
+import { useAuth } from '../context/useAuth';
 import { formatPrice } from '../utils/formatPrice';
-import { formatISTDateTime } from '../utils/dateFormatter';
+import { formatISTDateTime, formatISTDateOnly } from '../utils/dateFormatter';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 import { OrderDetailSkeleton, PageSkeleton } from '../components/ui/skeleton';
@@ -21,11 +22,20 @@ const maskPaymentId = (pid) => {
 
 const OrderDetailPage = () => {
   const { id } = useParams();
+  const { isAuthenticated, loading: authLoading } = useAuth();
+  const navigate = useNavigate();
+
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isRetrying, setIsRetrying] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      navigate(`/login?redirect=${encodeURIComponent(`/orders/${id}`)}`);
+    }
+  }, [authLoading, isAuthenticated, id, navigate]);
 
   const fetchOrder = useCallback(async (isBackground = false) => {
     if (!isBackground) setLoading(true);
@@ -383,22 +393,48 @@ const OrderDetailPage = () => {
 
       <div className="bg-slate-50 py-10 min-h-screen">
         <div className="container mx-auto px-4 max-w-5xl">
+          
+          {/* Top Actions Bar */}
           <div className="flex flex-wrap gap-4 justify-between items-center mb-6">
-            <Link to="/my-orders" className="inline-flex items-center gap-2 text-slate-500 hover:text-brand-orange transition-colors">
+            <Link to="/my-orders" className="inline-flex items-center gap-2 text-slate-500 hover:text-brand-orange transition-colors font-medium text-sm">
               <FiArrowLeft /> Back to Orders
             </Link>
 
-            <button
-              onClick={handleDownloadInvoice}
-              disabled={!isPaid || isDownloading}
-              title={!isPaid ? 'Invoice is available only after payment is completed.' : 'Download Invoice'}
-              className={`btn-outline py-2 px-4 text-sm flex items-center gap-2 bg-white ${
-                !isPaid ? 'opacity-40 cursor-not-allowed hover:bg-white hover:text-slate-700' : ''
-              }`}
-            >
-              <FiDownload /> {isDownloading ? 'Downloading...' : 'Download Invoice'}
-            </button>
+            <div className="flex items-center gap-3">
+              <Link to="/products" className="text-sm font-semibold text-brand-orange hover:underline inline-flex items-center gap-1.5">
+                <FiShoppingBag /> Continue Shopping
+              </Link>
+              {isPaid && (
+                <button
+                  onClick={handleDownloadInvoice}
+                  disabled={isDownloading}
+                  title="Download Official Invoice PDF"
+                  className="btn-outline py-2 px-4 text-sm flex items-center gap-2 bg-white shadow-sm"
+                >
+                  <FiDownload /> {isDownloading ? 'Downloading...' : 'Download Invoice'}
+                </button>
+              )}
+            </div>
           </div>
+
+          {/* Success Banner when order is confirmed / paid */}
+          {isPaid && (
+            <div className="bg-gradient-to-r from-emerald-600 to-teal-700 text-white rounded-2xl p-6 mb-6 shadow-sm flex items-center justify-between flex-wrap gap-4">
+              <div className="flex items-center gap-3.5">
+                <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center shrink-0">
+                  <FiCheckCircle size={26} className="text-white" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold">Order Placed Successfully</h2>
+                  <p className="text-sm text-emerald-100 mt-0.5">Thank you for your purchase from AK Mobiles.</p>
+                </div>
+              </div>
+              <div className="text-left sm:text-right">
+                <span className="text-[11px] uppercase tracking-wider text-emerald-200 font-semibold">Order Number</span>
+                <p className="font-mono font-bold text-base text-white">{order._id}</p>
+              </div>
+            </div>
+          )}
           
           <div className="flex flex-col lg:flex-row gap-6">
             
@@ -446,37 +482,45 @@ const OrderDetailPage = () => {
                       </button>
                     </div>
                   ) : (
-                    <div className="flex justify-between relative px-2 sm:px-4">
-                      <div className="absolute top-5 left-0 w-full h-1 bg-slate-200 z-0"></div>
-                      <div 
-                        className="absolute top-5 left-0 h-1 bg-green-500 z-0 transition-all duration-500"
-                        style={{ 
-                          width: order.orderStatus === 'Placed' ? '0%' : 
-                                 order.orderStatus === 'Processing' ? '33%' : 
-                                 order.orderStatus === 'Shipped' ? '66%' : '100%' 
-                        }}
-                      ></div>
+                    <div>
+                      <div className="flex justify-between relative px-2 sm:px-4">
+                        <div className="absolute top-5 left-0 w-full h-1 bg-slate-200 z-0"></div>
+                        <div 
+                          className="absolute top-5 left-0 h-1 bg-green-500 z-0 transition-all duration-500"
+                          style={{ 
+                            width: order.orderStatus === 'Placed' ? '0%' : 
+                                   order.orderStatus === 'Processing' ? '33%' : 
+                                   order.orderStatus === 'Shipped' ? '66%' : '100%' 
+                          }}
+                        ></div>
 
-                      {steps.map((step) => {
-                        const status = getStepStatus(step.name);
-                        const Icon = step.icon;
-                        
-                        return (
-                          <div key={step.name} className="relative z-10 flex flex-col items-center group">
-                            <div className={`w-10 h-10 rounded-full flex items-center justify-center border-4 border-white transition-colors
-                              ${status === 'completed' ? 'bg-green-500 text-white' : 
-                                status === 'current' ? 'bg-brand-orange text-white' : 'bg-slate-200 text-slate-400'}`}
-                            >
-                              <Icon size={18} />
+                        {steps.map((step) => {
+                          const status = getStepStatus(step.name);
+                          const Icon = step.icon;
+                          
+                          return (
+                            <div key={step.name} className="relative z-10 flex flex-col items-center group">
+                              <div className={`w-10 h-10 rounded-full flex items-center justify-center border-4 border-white transition-colors
+                                ${status === 'completed' ? 'bg-green-500 text-white' : 
+                                  status === 'current' ? 'bg-brand-orange text-white' : 'bg-slate-200 text-slate-400'}`}
+                              >
+                                <Icon size={18} />
+                              </div>
+                              <p className={`text-xs sm:text-sm font-medium mt-3 text-center
+                                ${status === 'pending' ? 'text-slate-400' : 'text-slate-900'}`}
+                              >
+                                {step.label}
+                              </p>
                             </div>
-                            <p className={`text-xs sm:text-sm font-medium mt-3 text-center
-                              ${status === 'pending' ? 'text-slate-400' : 'text-slate-900'}`}
-                            >
-                              {step.label}
-                            </p>
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
+                      </div>
+
+                      {/* Real Tracking Info Placeholder (Shiprocket structure) */}
+                      <div className="mt-8 pt-4 border-t border-slate-100 flex items-center gap-2.5 text-xs text-slate-500 bg-slate-50 p-3 rounded-xl">
+                        <FiTruck className="text-slate-400 shrink-0" size={16} />
+                        <span>Tracking details will be available once your order is shipped.</span>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -613,6 +657,28 @@ const OrderDetailPage = () => {
 
             </div>
           </div>
+
+          {/* Bottom Navigation & Actions */}
+          <div className="mt-8 flex flex-wrap gap-4 items-center justify-between bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+            <div className="flex flex-wrap gap-3">
+              <Link to="/products" className="btn-primary py-2.5 px-5 text-sm font-semibold flex items-center gap-2">
+                <FiShoppingBag /> Continue Shopping
+              </Link>
+              <Link to="/my-orders" className="btn-outline py-2.5 px-5 text-sm font-semibold flex items-center gap-2 bg-white">
+                <FiPackage /> View All Orders
+              </Link>
+            </div>
+            {isPaid && (
+              <button
+                onClick={handleDownloadInvoice}
+                disabled={isDownloading}
+                className="btn-outline py-2.5 px-5 text-sm font-semibold flex items-center gap-2 bg-white text-slate-700 hover:text-brand-orange"
+              >
+                <FiDownload /> {isDownloading ? 'Downloading...' : 'Download Invoice'}
+              </button>
+            )}
+          </div>
+
         </div>
       </div>
     </>

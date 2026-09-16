@@ -49,7 +49,7 @@ const CheckoutStepBar = () => {
 };
 
 const CheckoutPage = () => {
-  const { cartItems, cartSubtotal, cartTax, cartShipping, cartTotal, clearCart } = useCart();
+  const { cartItems, cartSubtotal, cartTax, cartShipping, cartTotal, clearCart, clearPurchasedItems } = useCart();
   const { user, isAuthenticated, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -82,6 +82,7 @@ const CheckoutPage = () => {
   }
 
   const [isProcessing, setIsProcessing] = useState(false);
+  const [pendingOrderId, setPendingOrderId] = useState(null);
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -92,6 +93,7 @@ const CheckoutPage = () => {
   }, [authLoading, isAuthenticated, cartItems.length, navigate]);
 
   const handleChange = (e) => {
+    setPendingOrderId(null); // Invalidate pending order if shipping details change
     setShippingAddress({ ...shippingAddress, [e.target.name]: e.target.value });
   };
 
@@ -122,21 +124,25 @@ const CheckoutPage = () => {
         return;
       }
 
-      // 2. Create internal order first
-      const orderPayload = {
-        orderItems: cartItems,
-        shippingAddress,
-        paymentInfo: {
-          method: 'Razorpay',
-          status: 'Pending'
-        }
-      };
+      // 2. Reuse existing pending order or create a new internal order
+      let internalOrderId = pendingOrderId;
+      if (!internalOrderId) {
+        const orderPayload = {
+          orderItems: cartItems,
+          shippingAddress,
+          paymentInfo: {
+            method: 'Razorpay',
+            status: 'Pending'
+          }
+        };
 
-      const { data: orderRes } = await api.post('/orders', orderPayload);
-      const internalOrder = orderRes.order;
-      const internalOrderId = internalOrder._id;
+        const { data: orderRes } = await api.post('/orders', orderPayload);
+        const internalOrder = orderRes.order;
+        internalOrderId = internalOrder._id;
+        setPendingOrderId(internalOrderId);
+      }
 
-      // 3. Create Razorpay order via canonical endpoint
+      // 3. Create or reuse Razorpay order via canonical endpoint
       const { data: rzpData } = await api.post('/payments/razorpay/create-order/', {
         orderId: internalOrderId
       });
@@ -205,16 +211,23 @@ const CheckoutPage = () => {
               razorpay_signature: response.razorpay_signature
             });
 
-            if (verifyRes.status === 'captured') {
-              clearCart();
+            const isCompleted = verifyRes?.success === true && verifyRes?.payment?.status === 'Completed';
+            const verifiedOrderId = verifyRes?.order?.id || verifyRes?.order?._id || verifyRes?.orderId;
+
+            if (isCompleted && verifiedOrderId) {
+              if (typeof clearPurchasedItems === 'function') {
+                clearPurchasedItems(cartItems.map(item => item.product || item.id));
+              } else {
+                clearCart();
+              }
               toast.success('Payment successful! Order placed.');
-              navigate(`/order-success/${internalOrderId}`);
-            } else if (verifyRes.status === 'authorized') {
+              navigate(`/orders/${verifiedOrderId}`, { replace: true });
+            } else if (verifyRes?.status === 'authorized') {
               toast('Payment authorized and processing. We will update your order shortly.', { icon: '⏳' });
-              navigate(`/orders/${internalOrderId}`);
+              navigate(`/orders/${verifiedOrderId || internalOrderId}`, { replace: true });
             } else {
-              toast.error(verifyRes.message || 'Payment status pending verification.');
-              navigate(`/orders/${internalOrderId}`);
+              toast.error(verifyRes?.message || 'Payment status pending verification.');
+              setIsProcessing(false);
             }
           } catch (error) {
             const msg = error.response?.data?.message || 'Payment verification failed. Please contact support.';

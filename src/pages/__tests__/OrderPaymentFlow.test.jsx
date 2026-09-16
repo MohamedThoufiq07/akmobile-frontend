@@ -154,8 +154,7 @@ describe('OrderPaymentFlow and Cancellation Suite', () => {
       expect(screen.getByText('Payment Confirmation Required')).toBeTruthy();
       expect(screen.getAllByText('Retry Payment').length).toBeGreaterThanOrEqual(1);
 
-      const invoiceBtn = screen.getByText('Download Invoice').closest('button');
-      expect(invoiceBtn?.disabled).toBe(true);
+      expect(screen.queryByText('Download Invoice')).toBeNull();
     });
 
     it('renders completed paid order with Total Paid, active stepper, and enabled invoice', async () => {
@@ -188,7 +187,7 @@ describe('OrderPaymentFlow and Cancellation Suite', () => {
       expect(await screen.findByText('Total Paid')).toBeTruthy();
       expect(screen.getByText('Order Placed')).toBeTruthy();
 
-      const invoiceBtn = screen.getByText('Download Invoice').closest('button');
+      const invoiceBtn = screen.getAllByText('Download Invoice')[0].closest('button');
       expect(invoiceBtn?.disabled).toBe(false);
     });
   });
@@ -370,6 +369,17 @@ describe('OrderPaymentFlow and Cancellation Suite', () => {
               status: 'captured',
               message: 'Payment verified successfully.',
               orderId: '000000000000000000000001',
+              order: {
+                id: '000000000000000000000001',
+                _id: '000000000000000000000001',
+                order_number: '000000000000000000000001',
+                status: 'Placed',
+              },
+              payment: {
+                status: 'Completed',
+                razorpay_order_id: 'order_test_rzp_001',
+                razorpay_payment_id: 'pay_test_success_001',
+              },
             },
           });
         }
@@ -402,9 +412,9 @@ describe('OrderPaymentFlow and Cancellation Suite', () => {
         })
       );
 
-      // Cart cleared and navigated to order-success
+      // Cart cleared and navigated directly to Order Details page with replace: true
       expect(mockClearCart).toHaveBeenCalledTimes(1);
-      expect(mockNavigate).toHaveBeenCalledWith('/order-success/000000000000000000000001');
+      expect(mockNavigate).toHaveBeenCalledWith('/orders/000000000000000000000001', { replace: true });
       expect(toast.success).toHaveBeenCalledWith('Payment successful! Order placed.');
     });
   });

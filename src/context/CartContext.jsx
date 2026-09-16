@@ -158,6 +158,16 @@ export const CartProvider = ({ children }) => {
     saveCartToStorage([]);
   }, [saveCartToStorage]);
 
+  const clearPurchasedItems = useCallback((purchasedProductIds) => {
+    if (!Array.isArray(purchasedProductIds) || purchasedProductIds.length === 0) {
+      saveCartToStorage([]);
+      return;
+    }
+    const idSet = new Set(purchasedProductIds.map(id => String(id)));
+    const remainingItems = cartItems.filter((x) => !idSet.has(String(x.product || x.id)));
+    saveCartToStorage(remainingItems);
+  }, [cartItems, saveCartToStorage]);
+
   const value = useMemo(() => ({
     cartItems: safeCartItems,
     cartItemCount,
@@ -169,7 +179,8 @@ export const CartProvider = ({ children }) => {
     updateQuantity,
     removeFromCart,
     clearCart,
-  }), [safeCartItems, cartItemCount, cartSubtotal, cartTax, cartShipping, cartTotal, addToCart, updateQuantity, removeFromCart, clearCart]);
+    clearPurchasedItems,
+  }), [safeCartItems, cartItemCount, cartSubtotal, cartTax, cartShipping, cartTotal, addToCart, updateQuantity, removeFromCart, clearCart, clearPurchasedItems]);
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 };
