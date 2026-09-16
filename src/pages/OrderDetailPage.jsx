@@ -5,7 +5,7 @@ import { FiArrowLeft, FiDownload, FiCheck, FiCheckCircle, FiPackage, FiTruck, Fi
 import api from '../utils/api';
 import { useAuth } from '../context/useAuth';
 import { formatPrice } from '../utils/formatPrice';
-import { formatISTDateTime, formatISTDateOnly } from '../utils/dateFormatter';
+import { formatISTDateTime } from '../utils/dateFormatter';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 import { OrderDetailSkeleton, PageSkeleton } from '../components/ui/skeleton';
