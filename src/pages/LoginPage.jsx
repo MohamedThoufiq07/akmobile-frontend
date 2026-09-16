@@ -117,6 +117,8 @@ const LoginPage = () => {
     if (result.success) {
       handleCloseModal();
       navigate(safeRedirect);
+    } else {
+      setLinkPassword('');
     }
 
     setIsLinking(false);

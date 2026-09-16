@@ -395,8 +395,32 @@ describe('Google Authentication and Native GIS Lifecycle Flow', () => {
         password: 'wrongpassword',
       });
       expect(toast.error).toHaveBeenCalledWith('Incorrect password for linking this account. Please try again.');
+      expect(toast.error).not.toHaveBeenCalledWith(expect.stringMatching(/session expired/i));
       expect(screen.getByText('Link Existing Account')).toBeDefined();
+      expect(modalPasswordInput.value).toBe('');
     });
+
+    // Now enter correct password in the still-open modal to verify retry without popup
+    api.post.mockResolvedValueOnce({
+      data: {
+        success: true,
+        token: 'linked-user-jwt',
+        user: { _id: 'linked-user', name: 'Linked Customer', email: 'linked@example.com', role: 'user' },
+      },
+    });
+
+    fireEvent.change(modalPasswordInput, { target: { value: 'correctpassword123' } });
+    fireEvent.click(screen.getByRole('button', { name: /confirm & link/i }));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/accounts/google/', {
+        credential: 'mock-google-id-token',
+        password: 'correctpassword123',
+      });
+      expect(localStorage.getItem('token')).toBe('linked-user-jwt');
+      expect(screen.queryByText('Link Existing Account')).toBeNull();
+    });
+
     vi.unstubAllEnvs();
   });
 

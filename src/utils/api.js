@@ -28,18 +28,35 @@ api.interceptors.response.use(
     return response;
   },
   (error) => {
-    // If the error is 401 Unauthorized, maybe redirect to login or clear token
+    // If the error is 401 Unauthorized, handle expired/invalid session
     if (error.response && error.response.status === 401) {
       const url = error.config?.url || '';
-      const isAuthSubmit = url.includes('/auth/login') || 
-                           url.includes('/auth/register') || 
-                           url.includes('/auth/forgot-password') || 
-                           url.includes('/auth/reset-password');
       
-      if (!isAuthSubmit) {
+      // Exclude all public authentication endpoints
+      const isPublicAuthEndpoint =
+        url.includes('/accounts/google') ||
+        url.includes('/auth/login') ||
+        url.includes('/auth/register') ||
+        url.includes('/auth/forgot-password') ||
+        url.includes('/auth/reset-password');
+
+      // Check if the request originally included an AK Mobiles Authorization Bearer JWT
+      const authHeader =
+        error.config?.headers?.Authorization ||
+        error.config?.headers?.authorization ||
+        (typeof error.config?.headers?.get === 'function'
+          ? error.config.headers.get('Authorization')
+          : null);
+
+      const hasBearerToken =
+        typeof authHeader === 'string' &&
+        authHeader.trim().startsWith('Bearer ');
+
+      // Only trigger session expiration for authenticated protected requests
+      if (!isPublicAuthEndpoint && hasBearerToken) {
         localStorage.removeItem('token');
-        // Only show error if it's not a profile check on initial load
-        if (error.config.url !== '/auth/profile') {
+        // Only show error and redirect if it's not a silent profile check on initial load
+        if (url !== '/auth/profile') {
           toast.error('Session expired. Please login again.');
           window.location.href = '/login';
         }
