@@ -64,13 +64,9 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const googleLogin = async (credential, password = null) => {
+  const googleLogin = async (credential) => {
     try {
-      const payload = { credential };
-      if (password) {
-        payload.password = password;
-      }
-      const { data } = await api.post('/accounts/google/', payload);
+      const { data } = await api.post('/accounts/google/', { credential });
       if (data.user.role === 'admin') {
         toast.error('Customer account required');
         return { success: false, code: 'CUSTOMER_ACCOUNT_REQUIRED', message: 'Customer account required' };
@@ -84,9 +80,7 @@ export const AuthProvider = ({ children }) => {
       const resData = error.response?.data;
       const code = resData?.code || 'GOOGLE_AUTH_FAILED';
       const msg = resData?.message || 'Google authentication failed';
-      if (code !== 'ACCOUNT_LINK_REQUIRED') {
-        toast.error(msg);
-      }
+      toast.error(msg);
       return { success: false, code, message: msg };
     }
   };
@@ -94,11 +88,9 @@ export const AuthProvider = ({ children }) => {
   const register = async (userData) => {
     try {
       const { data } = await api.post('/auth/register', userData);
-      localStorage.setItem('token', data.token);
-      setUser(data.user);
-      setIsAuthenticated(true);
-      toast.success('Registration successful!');
-      return { success: true };
+      const msg = data?.message || 'Account created successfully! Please sign in.';
+      toast.success(msg);
+      return { success: true, message: msg };
     } catch (error) {
       const msg = error.response?.data?.message || 'Registration failed';
       toast.error(msg);

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import GoogleSignInButton from '../components/auth/GoogleSignInButton';
@@ -25,49 +25,25 @@ const sanitizeRedirect = (raw) => {
 };
 
 const LoginPage = () => {
-  const [email, setEmail] = useState('');
+  const location = useLocation();
+  const [email, setEmail] = useState(location.state?.email || '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // Google OAuth & Account Linking state
-  const [pendingCredential, setPendingCredential] = useState(null);
-  const [showLinkModal, setShowLinkModal] = useState(false);
-  const [linkPassword, setLinkPassword] = useState('');
-  const [showLinkPassword, setShowLinkPassword] = useState(false);
-  const [isLinking, setIsLinking] = useState(false);
   const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
 
   const { login, googleLogin, isAuthenticated } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
 
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
   const rawRedirect = new URLSearchParams(location.search).get('redirect');
   const safeRedirect = sanitizeRedirect(rawRedirect);
-
-  const handleCloseModal = useCallback(() => {
-    if (isLinking) return;
-    setShowLinkModal(false);
-    setPendingCredential(null);
-    setLinkPassword('');
-  }, [isLinking]);
 
   useEffect(() => {
     if (isAuthenticated) {
       navigate(safeRedirect);
     }
   }, [isAuthenticated, navigate, safeRedirect]);
-
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape' && showLinkModal && !isLinking) {
-        handleCloseModal();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showLinkModal, isLinking, handleCloseModal]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -90,10 +66,6 @@ const LoginPage = () => {
 
     if (result.success) {
       navigate(safeRedirect);
-    } else if (result.code === 'ACCOUNT_LINK_REQUIRED') {
-      setPendingCredential(credentialResponse.credential);
-      setLinkPassword('');
-      setShowLinkModal(true);
     }
 
     setIsGoogleSubmitting(false);
@@ -105,23 +77,6 @@ const LoginPage = () => {
 
   const handleUnconfiguredGoogle = () => {
     toast.error('Google sign-in is not configured yet.');
-  };
-
-  const handleLinkSubmit = async (e) => {
-    e.preventDefault();
-    if (!pendingCredential || !linkPassword || isLinking) return;
-    setIsLinking(true);
-
-    const result = await googleLogin(pendingCredential, linkPassword);
-
-    if (result.success) {
-      handleCloseModal();
-      navigate(safeRedirect);
-    } else {
-      setLinkPassword('');
-    }
-
-    setIsLinking(false);
   };
 
   return (
@@ -238,76 +193,6 @@ const LoginPage = () => {
           </div>
         </Reveal>
       </div>
-
-      {/* Account Linking Modal */}
-      {showLinkModal && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="link-modal-title"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
-        >
-          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl p-6 border border-slate-200 text-slate-800 relative">
-            <div className="text-center mb-4">
-              <div className="w-12 h-12 rounded-full bg-blue-50 text-brand-blue flex items-center justify-center mx-auto mb-3 text-xl">
-                <FiLock />
-              </div>
-              <h3 id="link-modal-title" className="text-xl font-extrabold text-slate-900">
-                Link Existing Account
-              </h3>
-              <p className="text-xs text-slate-500 mt-1">
-                An account already exists with this email address. Enter your existing AK Mobiles password to securely link your Google account.
-              </p>
-            </div>
-
-            <form onSubmit={handleLinkSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">AK Mobiles Password</label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                    <FiLock />
-                  </div>
-                  <input
-                    type={showLinkPassword ? "text" : "password"}
-                    required
-                    autoFocus
-                    className="input-field pl-10 pr-10 bg-slate-50 border-slate-200 text-slate-900 py-3 text-sm focus:bg-white"
-                    placeholder="Enter your current password"
-                    value={linkPassword}
-                    onChange={(e) => setLinkPassword(e.target.value)}
-                    disabled={isLinking}
-                  />
-                  <button
-                    type="button"
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-brand-blue"
-                    onClick={() => setShowLinkPassword(!showLinkPassword)}
-                  >
-                    {showLinkPassword ? <FiEyeOff size={16} /> : <FiEye size={16} />}
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={handleCloseModal}
-                  disabled={isLinking}
-                  className="flex-1 py-2.5 px-4 rounded-xl text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isLinking || !linkPassword}
-                  className="flex-1 btn-premium py-2.5 px-4 text-sm font-bold disabled:opacity-50"
-                >
-                  {isLinking ? 'Linking...' : 'Confirm & Link'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </>
   );
 };

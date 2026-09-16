@@ -97,7 +97,7 @@ export function initializeGoogleIdentity(clientId, onCredential) {
     client_id: trimmedClientId,
     callback: handleCredentialResponse,
     ux_mode: 'popup',
-    use_fedcm_for_button: false,
+    use_fedcm_for_button: true,
     auto_select: false,
     cancel_on_tap_outside: true,
   });
