@@ -412,10 +412,16 @@ describe('OrderPaymentFlow and Cancellation Suite', () => {
         })
       );
 
-      // Cart cleared and navigated directly to Order Details page with replace: true
+      // Cart cleared and navigated directly to My Orders page with replace: true and state
       expect(mockClearCart).toHaveBeenCalledTimes(1);
-      expect(mockNavigate).toHaveBeenCalledWith('/orders/000000000000000000000001', { replace: true });
-      expect(toast.success).toHaveBeenCalledWith('Payment successful! Order placed.');
+      expect(mockNavigate).toHaveBeenCalledWith('/my-orders', {
+        replace: true,
+        state: {
+          paymentSuccess: true,
+          orderId: '000000000000000000000001',
+        },
+      });
+      expect(toast.success).not.toHaveBeenCalled();
     });
   });
 

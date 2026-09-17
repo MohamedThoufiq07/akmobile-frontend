@@ -4,6 +4,7 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
 import CheckoutPage from '../CheckoutPage';
 import OrderDetailPage from '../OrderDetailPage';
+import MyOrdersPage from '../MyOrdersPage';
 
 // Mock browser globals for jsdom
 globalThis.IntersectionObserver = class {
@@ -198,7 +199,7 @@ describe('PostPurchaseOrderFlow Comprehensive Test Suite', () => {
       expect(mockClearCart).not.toHaveBeenCalled();
     });
 
-    it('4 & 7. redirects directly to /orders/:orderId with replace:true and clears cart on successful backend verification', async () => {
+    it('4 & 7. redirects directly to /my-orders with replace:true and paymentSuccess state on successful backend verification and clears cart', async () => {
       let razorpayOptions = null;
       window.Razorpay = vi.fn().mockImplementation(function (opts) {
         razorpayOptions = opts;
@@ -258,9 +259,77 @@ describe('PostPurchaseOrderFlow Comprehensive Test Suite', () => {
       // Cart cleared exactly once (via clearPurchasedItems or clearCart)
       expect(mockClearPurchasedItems.mock.calls.length + mockClearCart.mock.calls.length).toBeGreaterThanOrEqual(1);
 
-      // Successfully redirected to the specific order details page
-      expect(mockNavigate).toHaveBeenCalledWith('/orders/AKM-2026-999', { replace: true });
-      expect(toast.success).toHaveBeenCalledWith('Payment successful! Order placed.');
+      // Successfully redirected directly to /my-orders with replace: true and state
+      expect(mockNavigate).toHaveBeenCalledWith('/my-orders', {
+        replace: true,
+        state: {
+          paymentSuccess: true,
+          orderId: 'AKM-2026-999',
+        },
+      });
+      // No checkout toast (one-time banner displayed on My Orders only)
+      expect(toast.success).not.toHaveBeenCalled();
+    });
+
+    it('4b. cart clear failure does not prevent navigation to /my-orders or show failure toast', async () => {
+      let razorpayOptions = null;
+      window.Razorpay = vi.fn().mockImplementation(function (opts) {
+        razorpayOptions = opts;
+        return {
+          open: vi.fn(),
+          on: vi.fn(),
+        };
+      });
+
+      mockClearPurchasedItems.mockImplementationOnce(() => {
+        throw new Error('Local storage write quota exceeded');
+      });
+
+      api.post.mockImplementation((url) => {
+        if (url === '/orders') {
+          return Promise.resolve({ data: { order: { _id: 'AKM-2026-888' } } });
+        }
+        if (url === '/payments/razorpay/create-order/') {
+          return Promise.resolve({
+            data: { key: 'rzp_test_key', orderId: 'rzp_order_888', amount: 1500000, currency: 'INR' }
+          });
+        }
+        if (url === '/payments/razorpay/verify-payment/') {
+          return Promise.resolve({
+            data: {
+              success: true,
+              order: { id: 'AKM-2026-888', _id: 'AKM-2026-888' },
+              payment: { status: 'Completed' }
+            }
+          });
+        }
+        return Promise.resolve({ data: {} });
+      });
+
+      renderComponent(<CheckoutPage />);
+
+      const placeOrderBtn = screen.getByRole('button', { name: /Place Order/i });
+      fireEvent.click(placeOrderBtn);
+
+      await waitFor(() => {
+        expect(razorpayOptions).not.toBeNull();
+      });
+
+      await razorpayOptions.handler({
+        razorpay_order_id: 'rzp_order_888',
+        razorpay_payment_id: 'pay_888',
+        razorpay_signature: 'sig_888',
+      });
+
+      // Still navigated to /my-orders without reporting payment failure
+      expect(mockNavigate).toHaveBeenCalledWith('/my-orders', {
+        replace: true,
+        state: {
+          paymentSuccess: true,
+          orderId: 'AKM-2026-888',
+        },
+      });
+      expect(toast.error).not.toHaveBeenCalled();
     });
 
     it('5. failed verification remains on Checkout without clearing cart', async () => {
@@ -478,6 +547,76 @@ describe('PostPurchaseOrderFlow Comprehensive Test Suite', () => {
 
       expect(await screen.findByText('Order Cancelled')).toBeTruthy();
       expect(screen.queryByText('Order Placed Successfully')).toBeNull();
+    });
+  });
+
+  describe('MyOrdersPage Post-Payment Banner & Highlight Suite', () => {
+    const mockOrdersList = [
+      {
+        _id: 'AKM-2026-999',
+        id: 'AKM-2026-999',
+        orderStatus: 'Placed',
+        createdAt: '2026-09-17T10:00:00Z',
+        itemsPrice: 15000.0,
+        taxPrice: 2700.0,
+        shippingPrice: 0.0,
+        totalPrice: 15000.0,
+        paymentInfo: { method: 'Razorpay', status: 'Completed', razorpayPaymentId: 'pay_999' },
+        orderItems: [
+          { product: 'prod_001', name: 'AK Ultra 5G', brand: 'AK Mobiles', price: 15000.0, quantity: 1, image: '/phone.jpg' }
+        ],
+        shippingAddress: { name: 'Authorized Customer', phone: '9876543210', city: 'Virudhachalam' }
+      },
+      {
+        _id: 'AKM-2026-111',
+        id: 'AKM-2026-111',
+        orderStatus: 'Delivered',
+        createdAt: '2026-09-01T10:00:00Z',
+        itemsPrice: 5000.0,
+        taxPrice: 900.0,
+        shippingPrice: 0.0,
+        totalPrice: 5000.0,
+        paymentInfo: { method: 'Razorpay', status: 'Completed', razorpayPaymentId: 'pay_111' },
+        orderItems: [
+          { product: 'prod_002', name: 'AK Earbuds', brand: 'AK Mobiles', price: 5000.0, quantity: 1, image: '/buds.jpg' }
+        ],
+        shippingAddress: { name: 'Authorized Customer', phone: '9876543210', city: 'Virudhachalam' }
+      }
+    ];
+
+    it('displays one-time payment success banner, highlights the matching order via normalized ID, and clears router state', async () => {
+      api.get.mockResolvedValueOnce({ data: { orders: mockOrdersList } });
+
+      render(
+        <HelmetProvider>
+          <MemoryRouter
+            initialEntries={[
+              {
+                pathname: '/my-orders',
+                state: { paymentSuccess: true, orderId: 'AKM-2026-999' }
+              }
+            ]}
+          >
+            <Routes>
+              <Route path="/my-orders" element={<MyOrdersPage />} />
+            </Routes>
+          </MemoryRouter>
+        </HelmetProvider>
+      );
+
+      // Verify fresh orders fetched
+      expect(api.get).toHaveBeenCalledWith('/orders/myorders');
+
+      // Verify one-time payment success banner is visible
+      expect(await screen.findByText('Order placed successfully!')).toBeTruthy();
+      expect(screen.getByText('Your payment was verified and your order has been confirmed.')).toBeTruthy();
+
+      // Verify router navigation was called to clear history state safely
+      expect(mockNavigate).toHaveBeenCalledWith('/my-orders', { replace: true, state: null });
+
+      // Verify order list rendered
+      expect(screen.getByText('AK Ultra 5G')).toBeTruthy();
+      expect(screen.getByText('AK Earbuds')).toBeTruthy();
     });
   });
 });

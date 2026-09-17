@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { FiEye, FiPackage, FiSearch, FiRefreshCw, FiAlertCircle, FiArrowRight } from 'react-icons/fi';
+import { FiEye, FiPackage, FiSearch, FiRefreshCw, FiAlertCircle, FiArrowRight, FiCheckCircle } from 'react-icons/fi';
 import api from '../utils/api';
 import { useAuth } from '../context/useAuth';
 import { formatPrice } from '../utils/formatPrice';
@@ -14,9 +14,30 @@ import { OrderCardSkeleton, PageSkeleton } from '../components/ui/skeleton';
 
 const MyOrdersPage = () => {
   const { user } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Capture one-time payment success info in local state
+  const [newOrderInfo] = useState(() => {
+    if (location.state?.paymentSuccess) {
+      return {
+        paymentSuccess: true,
+        orderId: location.state?.orderId || null,
+      };
+    }
+    return null;
+  });
+
+  // Clear navigation state from browser history via React Router navigate
+  useEffect(() => {
+    if (location.state?.paymentSuccess) {
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.state, location.pathname, navigate]);
 
   const fetchOrders = useCallback(async () => {
     setLoading(true);
@@ -79,6 +100,27 @@ const MyOrdersPage = () => {
             My Orders
           </Reveal>
 
+          {/* One-time Payment Confirmation Banner */}
+          {newOrderInfo?.paymentSuccess && (
+            <div className="bg-gradient-to-r from-emerald-600 to-teal-700 text-white rounded-2xl p-5 sm:p-6 mb-8 shadow-sm flex items-center justify-between flex-wrap gap-4">
+              <div className="flex items-center gap-3.5">
+                <div className="w-11 h-11 bg-white/20 rounded-full flex items-center justify-center shrink-0">
+                  <FiCheckCircle size={24} className="text-white" />
+                </div>
+                <div>
+                  <h2 className="text-base sm:text-lg font-bold">Order placed successfully!</h2>
+                  <p className="text-xs sm:text-sm text-emerald-100 mt-0.5">Your payment was verified and your order has been confirmed.</p>
+                </div>
+              </div>
+              {newOrderInfo.orderId && (
+                <div className="text-left sm:text-right">
+                  <span className="text-[10px] uppercase tracking-wider text-emerald-200 font-semibold">New Order ID</span>
+                  <p className="font-mono font-bold text-sm text-white">#{String(newOrderInfo.orderId).slice(-8).toUpperCase()}</p>
+                </div>
+              )}
+            </div>
+          )}
+
           {loading ? (
             <PageSkeleton loading={true} statusText="Loading your orders...">
               <div className="space-y-6" aria-hidden="true">
@@ -119,13 +161,14 @@ const MyOrdersPage = () => {
               {orders.map((order, idx) => {
                 if (!order || typeof order !== 'object') return null;
 
-                const orderId = order._id || '';
+                const orderId = order._id || order.id || '';
                 const shortId = orderId ? (orderId.length > 8 ? orderId.slice(-8) : orderId).toUpperCase() : 'UNKNOWN';
                 const shipName = order.shippingAddress?.name || user?.name || 'Customer';
                 const items = Array.isArray(order.orderItems) ? order.orderItems : [];
                 const orderStatus = order.orderStatus || 'Placed';
                 const paymentInfo = order.paymentInfo || {};
                 const isPaid = paymentInfo.status === 'Completed' && orderStatus !== 'AwaitingPayment';
+                const isNewOrder = Boolean(newOrderInfo?.orderId && String(order.id ?? order._id) === String(newOrderInfo.orderId));
 
                 let displayBadgeText = orderStatus;
                 let displayBadgeColor = STATUS_COLORS[orderStatus] || 'bg-slate-100 text-slate-800';
@@ -147,7 +190,12 @@ const MyOrdersPage = () => {
                 }
 
                 return (
-                  <RevealItem key={orderId || `order-${idx}`} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                  <RevealItem
+                    key={orderId || `order-${idx}`}
+                    className={`bg-white rounded-xl shadow-sm border ${
+                      isNewOrder ? 'border-emerald-500 ring-2 ring-emerald-500/20' : 'border-slate-200'
+                    } overflow-hidden transition-all duration-300`}
+                  >
                     {/* Order Header */}
                     <div className="bg-slate-50 border-b border-slate-200 p-4 sm:p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                       <div className="flex flex-wrap gap-x-8 gap-y-2">

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { FiArrowLeft } from 'react-icons/fi';
@@ -49,7 +49,7 @@ const CheckoutStepBar = () => {
 };
 
 const CheckoutPage = () => {
-  const { cartItems, cartSubtotal, cartTax, cartShipping, cartTotal, clearCart, clearPurchasedItems } = useCart();
+  const { cartItems, cartSubtotal, cartTax, cartShipping, cartTotal, clearCart, clearPurchasedItems, loading: cartLoading } = useCart();
   const { user, isAuthenticated, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -83,14 +83,24 @@ const CheckoutPage = () => {
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [pendingOrderId, setPendingOrderId] = useState(null);
+  const paymentFinalizedRef = useRef(false);
 
   useEffect(() => {
-    if (!authLoading && !isAuthenticated) {
+    if (authLoading || cartLoading) {
+      return;
+    }
+    if (!isAuthenticated) {
       navigate('/login?redirect=checkout');
-    } else if (cartItems.length === 0) {
+    } else if (
+      isAuthenticated &&
+      Array.isArray(cartItems) &&
+      cartItems.length === 0 &&
+      !isProcessing &&
+      !paymentFinalizedRef.current
+    ) {
       navigate('/cart');
     }
-  }, [authLoading, isAuthenticated, cartItems.length, navigate]);
+  }, [authLoading, cartLoading, isAuthenticated, cartItems, isProcessing, navigate]);
 
   const handleChange = (e) => {
     setPendingOrderId(null); // Invalidate pending order if shipping details change
@@ -188,6 +198,7 @@ const CheckoutPage = () => {
         },
         modal: {
           ondismiss: async function () {
+            if (paymentFinalizedRef.current) return;
             setIsProcessing(false);
             try {
               await api.post('/payments/razorpay/checkout-dismissed/', {
@@ -204,29 +215,55 @@ const CheckoutPage = () => {
         handler: async function (response) {
           try {
             // 5. Verify payment on server via canonical endpoint
-            const { data: verifyRes } = await api.post('/payments/razorpay/verify-payment/', {
+            const verifyResponse = await api.post('/payments/razorpay/verify-payment/', {
               orderId: internalOrderId,
               razorpay_order_id: response.razorpay_order_id,
               razorpay_payment_id: response.razorpay_payment_id,
               razorpay_signature: response.razorpay_signature
             });
+            const data = verifyResponse.data;
 
-            const isCompleted = verifyRes?.success === true && verifyRes?.payment?.status === 'Completed';
-            const verifiedOrderId = verifyRes?.order?.id || verifyRes?.order?._id || verifyRes?.orderId;
+            const isCompleted =
+              data?.success === true &&
+              data?.payment?.status === 'Completed';
+            const verifiedOrderId =
+              data?.order?.id ||
+              data?.order?._id ||
+              data?.orderId ||
+              internalOrderId;
 
-            if (isCompleted && verifiedOrderId) {
-              if (typeof clearPurchasedItems === 'function') {
-                clearPurchasedItems(cartItems.map(item => item.product || item.id));
-              } else {
-                clearCart();
+            if (isCompleted) {
+              // Immediately set finalized flag BEFORE clearing cart to prevent any race condition
+              paymentFinalizedRef.current = true;
+              try {
+                if (typeof clearPurchasedItems === 'function') {
+                  clearPurchasedItems(cartItems.map(item => item.product || item.id));
+                } else {
+                  clearCart();
+                }
+              } catch (cartErr) {
+                console.warn('Failed to clear cart state after payment verification:', cartErr);
               }
-              toast.success('Payment successful! Order placed.');
-              navigate(`/orders/${verifiedOrderId}`, { replace: true });
-            } else if (verifyRes?.status === 'authorized') {
+
+              navigate('/my-orders', {
+                replace: true,
+                state: {
+                  paymentSuccess: true,
+                  orderId: verifiedOrderId,
+                },
+              });
+            } else if (data?.status === 'authorized') {
+              paymentFinalizedRef.current = true;
               toast('Payment authorized and processing. We will update your order shortly.', { icon: '⏳' });
-              navigate(`/orders/${verifiedOrderId || internalOrderId}`, { replace: true });
+              navigate('/my-orders', {
+                replace: true,
+                state: {
+                  paymentSuccess: true,
+                  orderId: verifiedOrderId,
+                },
+              });
             } else {
-              toast.error(verifyRes?.message || 'Payment status pending verification.');
+              toast.error(data?.message || 'Payment status pending verification.');
               setIsProcessing(false);
             }
           } catch (error) {
@@ -241,6 +278,7 @@ const CheckoutPage = () => {
       const paymentObject = new window.Razorpay(options);
       
       paymentObject.on('payment.failed', function (response) {
+        if (paymentFinalizedRef.current) return;
         const errorDesc = response.error?.description || 'Payment failed. Please try again.';
         toast.error(`Payment failed: ${errorDesc}`);
         setIsProcessing(false);
