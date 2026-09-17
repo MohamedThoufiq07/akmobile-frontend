@@ -416,25 +416,6 @@ const OrderDetailPage = () => {
               )}
             </div>
           </div>
-
-          {/* Success Banner when order is confirmed / paid */}
-          {isPaid && (
-            <div className="bg-gradient-to-r from-emerald-600 to-teal-700 text-white rounded-2xl p-6 mb-6 shadow-sm flex items-center justify-between flex-wrap gap-4">
-              <div className="flex items-center gap-3.5">
-                <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center shrink-0">
-                  <FiCheckCircle size={26} className="text-white" />
-                </div>
-                <div>
-                  <h2 className="text-xl font-bold">Order Placed Successfully</h2>
-                  <p className="text-sm text-emerald-100 mt-0.5">Thank you for your purchase from AK Mobiles.</p>
-                </div>
-              </div>
-              <div className="text-left sm:text-right">
-                <span className="text-[11px] uppercase tracking-wider text-emerald-200 font-semibold">Order Number</span>
-                <p className="font-mono font-bold text-base text-white">{order._id}</p>
-              </div>
-            </div>
-          )}
           
           <div className="flex flex-col lg:flex-row gap-6">
             
@@ -656,27 +637,6 @@ const OrderDetailPage = () => {
               </Reveal>
 
             </div>
-          </div>
-
-          {/* Bottom Navigation & Actions */}
-          <div className="mt-8 flex flex-wrap gap-4 items-center justify-between bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
-            <div className="flex flex-wrap gap-3">
-              <Link to="/products" className="btn-primary py-2.5 px-5 text-sm font-semibold flex items-center gap-2">
-                <FiShoppingBag /> Continue Shopping
-              </Link>
-              <Link to="/my-orders" className="btn-outline py-2.5 px-5 text-sm font-semibold flex items-center gap-2 bg-white">
-                <FiPackage /> View All Orders
-              </Link>
-            </div>
-            {isPaid && (
-              <button
-                onClick={handleDownloadInvoice}
-                disabled={isDownloading}
-                className="btn-outline py-2.5 px-5 text-sm font-semibold flex items-center gap-2 bg-white text-slate-700 hover:text-brand-orange"
-              >
-                <FiDownload /> {isDownloading ? 'Downloading...' : 'Download Invoice'}
-              </button>
-            )}
           </div>
 
         </div>

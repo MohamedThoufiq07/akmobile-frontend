@@ -474,9 +474,9 @@ describe('PostPurchaseOrderFlow Comprehensive Test Suite', () => {
       // Verify API was called with the order ID parameter
       expect(api.get).toHaveBeenCalledWith('/orders/AKM-2026-000123');
 
-      // Success heading banner
-      expect(await screen.findByText('Order Placed Successfully')).toBeTruthy();
-      expect(screen.getAllByText('AKM-2026-000123').length).toBeGreaterThanOrEqual(1);
+      // Order Details heading and ID
+      expect(await screen.findByText('Order Details')).toBeTruthy();
+      expect(screen.getByText(/AKM-2026-000123/)).toBeTruthy();
 
       // Product information
       expect(screen.getByText('AK Ultra 5G')).toBeTruthy();
@@ -497,9 +497,9 @@ describe('PostPurchaseOrderFlow Comprehensive Test Suite', () => {
       // Tracking section with real status and clean placeholder without fake AWBs
       expect(screen.getByText('Tracking details will be available once your order is shipped.')).toBeTruthy();
 
-      // Action buttons
+      // Action buttons (top bar)
       expect(screen.getAllByText('Continue Shopping').length).toBeGreaterThanOrEqual(1);
-      expect(screen.getAllByText('View All Orders').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('Back to Orders').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('Download Invoice').length).toBeGreaterThanOrEqual(1);
     });
 
@@ -546,7 +546,7 @@ describe('PostPurchaseOrderFlow Comprehensive Test Suite', () => {
       );
 
       expect(await screen.findByText('Order Cancelled')).toBeTruthy();
-      expect(screen.queryByText('Order Placed Successfully')).toBeNull();
+      expect(screen.queryByText('Order Details')).toBeTruthy();
     });
   });
 
